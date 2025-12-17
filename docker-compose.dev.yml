@@ -1,0 +1,14 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: task-management-api-dev
+    volumes:
+      - ./workspace:/workspace
+    working_dir: /workspace
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    tty: true
+    command: /bin/bash

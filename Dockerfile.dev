@@ -1,0 +1,45 @@
+# Development environment with both source and target language runtimes
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go (source language)
+RUN wget https://go.dev/dl/go1.21.13.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.21.13.linux-amd64.tar.gz && \
+    rm go1.21.13.linux-amd64.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/root/go"
+ENV PATH="${GOPATH}/bin:${PATH}"
+
+# Install Python (target language)
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    python3.10-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create python symlink
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install Node.js and Claude Code
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @anthropic-ai/claude-code
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]

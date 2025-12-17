@@ -1,0 +1,23 @@
+id: "002"
+name: task-management-api
+type: server
+source_language: go
+target_language: python
+description: Task Management REST API with CRUD operations, pagination, filtering, and status management
+
+complexity:
+  loc: 762
+  test_count: 10
+
+architecture:
+  frameworks:
+    source: ["Gin"]
+    target: ["Flask"]
+  has_database: false
+  has_authentication: false
+
+provenance:
+  source_repo: https://github.com/cloudstreet-dev/REST-gRPC-in-33-Languages
+  license: MIT
+
+notes: Medium complexity API with CRUD, pagination, and filtering logic
