@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.26"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+exclusions:
+  rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
+  paths:
+    - vendor

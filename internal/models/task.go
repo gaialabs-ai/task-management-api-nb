@@ -103,9 +103,9 @@ type ErrorResponse struct {
 
 // ErrorDetail contains error details
 type ErrorDetail struct {
-	Code    string      `json:"code"`
-	Message string      `json:"message"`
-	Details interface{} `json:"details,omitempty"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 // Validate validates the task status

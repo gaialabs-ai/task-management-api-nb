@@ -10,26 +10,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/rest/server"
 	"github.com/gin-gonic/gin"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/config"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/services"
+	"github.com/task-management-api-nb/task-management-api-nb/rest/server"
 )
 
 func main() {
-	// Get port from environment or use default
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	// Load configuration from environment
+	cfg := config.Load()
 
-	// Set Gin mode based on environment
-	if os.Getenv("GIN_MODE") == "" {
-		gin.SetMode(gin.DebugMode)
-	}
+	// Set Gin mode based on configuration
+	gin.SetMode(cfg.GinMode)
 
 	// Create Gin router
 	router := gin.New()
-	
+
 	// Add middleware
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
@@ -44,16 +40,16 @@ func main() {
 
 	// Create HTTP server
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    ":" + cfg.Port,
 		Handler: router,
 	}
 
 	// Start server in a goroutine
 	go func() {
-		fmt.Printf("REST API server starting on http://localhost:%s\n", port)
-		fmt.Printf("Health check: http://localhost:%s/health\n", port)
-		fmt.Printf("API endpoint: http://localhost:%s/api/v1/tasks\n", port)
-		
+		fmt.Printf("REST API server starting on http://localhost:%s\n", cfg.Port)
+		fmt.Printf("Health check: http://localhost:%s/health\n", cfg.Port)
+		fmt.Printf("API endpoint: http://localhost:%s/api/v1/tasks\n", cfg.Port)
+
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
@@ -63,15 +59,15 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	
+
 	log.Println("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+		log.Println("Server forced to shutdown:", err)
 	}
 
 	log.Println("Server shutdown complete")
@@ -83,12 +79,12 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-		
+
 		c.Next()
 	}
 }

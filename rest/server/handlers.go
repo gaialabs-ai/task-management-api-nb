@@ -1,14 +1,14 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/services"
 )
 
 // Handler holds the HTTP handlers
@@ -91,9 +91,17 @@ func (h *Handler) getTask(c *gin.Context) {
 
 	task, err := h.taskService.GetTask(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.ErrorResponse{
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+
+		if errors.Is(err, services.ErrTaskNotFound) {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+
+		c.JSON(status, models.ErrorResponse{
 			Error: models.ErrorDetail{
-				Code:    "NOT_FOUND",
+				Code:    code,
 				Message: err.Error(),
 			},
 		})
@@ -118,9 +126,17 @@ func (h *Handler) createTask(c *gin.Context) {
 
 	task, err := h.taskService.CreateTask(req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+		status := http.StatusBadRequest
+		code := "VALIDATION_ERROR"
+
+		if !errors.Is(err, services.ErrInvalidPriority) {
+			status = http.StatusInternalServerError
+			code = "INTERNAL_ERROR"
+		}
+
+		c.JSON(status, models.ErrorResponse{
 			Error: models.ErrorDetail{
-				Code:    "VALIDATION_ERROR",
+				Code:    code,
 				Message: err.Error(),
 			},
 		})
@@ -150,12 +166,11 @@ func (h *Handler) updateTask(c *gin.Context) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
-		
-		// Check if it's a not found error
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
+
+		if errors.Is(err, services.ErrTaskNotFound) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
-		} else if strings.Contains(err.Error(), "invalid") {
+		} else if errors.Is(err, services.ErrInvalidStatus) || errors.Is(err, services.ErrInvalidPriority) {
 			status = http.StatusBadRequest
 			code = "VALIDATION_ERROR"
 		}
@@ -201,10 +216,13 @@ func (h *Handler) updateTaskStatus(c *gin.Context) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
-		
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
+
+		if errors.Is(err, services.ErrTaskNotFound) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
+		} else if errors.Is(err, services.ErrInvalidStatus) {
+			status = http.StatusBadRequest
+			code = "VALIDATION_ERROR"
 		}
 
 		c.JSON(status, models.ErrorResponse{
@@ -225,9 +243,17 @@ func (h *Handler) deleteTask(c *gin.Context) {
 
 	err := h.taskService.DeleteTask(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.ErrorResponse{
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+
+		if errors.Is(err, services.ErrTaskNotFound) {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+
+		c.JSON(status, models.ErrorResponse{
 			Error: models.ErrorDetail{
-				Code:    "NOT_FOUND",
+				Code:    code,
 				Message: err.Error(),
 			},
 		})

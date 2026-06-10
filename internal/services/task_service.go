@@ -1,15 +1,23 @@
 package services
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
 	"github.com/google/uuid"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
+)
+
+var (
+	ErrTaskNotFound    = errors.New("task not found")
+	ErrInvalidStatus   = errors.New("invalid status")
+	ErrInvalidPriority = errors.New("invalid priority")
 )
 
 // TaskService provides task management operations
@@ -45,7 +53,7 @@ func (s *TaskService) initializeSampleData() {
 	}
 
 	for _, req := range sampleTasks {
-		s.CreateTask(req)
+		_, _ = s.CreateTask(req)
 	}
 }
 
@@ -83,10 +91,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		}
 	}
 
-	endIndex := startIndex + pageSize
-	if endIndex > totalCount {
-		endIndex = totalCount
-	}
+	endIndex := min(startIndex+pageSize, totalCount)
 
 	var paginatedTasks []models.Task
 	if startIndex < totalCount {
@@ -114,7 +119,7 @@ func (s *TaskService) GetTask(id string) (*models.Task, error) {
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, fmt.Errorf("task with ID %s not found: %w", id, ErrTaskNotFound)
 	}
 
 	return task, nil
@@ -147,7 +152,7 @@ func (s *TaskService) CreateTask(req models.CreateTaskRequest) (*models.Task, er
 
 	// Validate priority
 	if !task.Priority.IsValid() {
-		return nil, fmt.Errorf("invalid priority: %s", task.Priority)
+		return nil, fmt.Errorf("invalid priority %s: %w", task.Priority, ErrInvalidPriority)
 	}
 
 	// Initialize empty tags slice if nil
@@ -166,7 +171,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, fmt.Errorf("task with ID %s not found: %w", id, ErrTaskNotFound)
 	}
 
 	// Update fields if provided
@@ -178,10 +183,10 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 	}
 	if req.Status != nil {
 		if !req.Status.IsValid() {
-			return nil, fmt.Errorf("invalid status: %s", *req.Status)
+			return nil, fmt.Errorf("invalid status %s: %w", *req.Status, ErrInvalidStatus)
 		}
 		task.Status = *req.Status
-		
+
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := time.Now()
@@ -190,7 +195,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 	}
 	if req.Priority != nil {
 		if !req.Priority.IsValid() {
-			return nil, fmt.Errorf("invalid priority: %s", *req.Priority)
+			return nil, fmt.Errorf("invalid priority %s: %w", *req.Priority, ErrInvalidPriority)
 		}
 		task.Priority = *req.Priority
 	}
@@ -221,7 +226,7 @@ func (s *TaskService) DeleteTask(id string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.tasks[id]; !exists {
-		return fmt.Errorf("task with ID %s not found", id)
+		return fmt.Errorf("task with ID %s not found: %w", id, ErrTaskNotFound)
 	}
 
 	delete(s.tasks, id)
@@ -251,13 +256,7 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 			hasAllTags := true
 			for _, tag := range tags {
 				tag = strings.TrimSpace(tag)
-				found := false
-				for _, taskTag := range task.Tags {
-					if taskTag == tag {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(task.Tags, tag)
 				if !found {
 					hasAllTags = false
 					break
