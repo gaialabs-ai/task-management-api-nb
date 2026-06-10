@@ -4,9 +4,7 @@
 *.dll
 *.so
 *.dylib
-server
-
-# Build output
+# Build output (compiled binary)
 /src/server
 /src/bin/
 
