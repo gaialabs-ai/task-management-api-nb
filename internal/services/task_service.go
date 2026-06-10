@@ -3,14 +3,15 @@ package services
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
 	"github.com/google/uuid"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
 )
 
 var (
@@ -90,10 +91,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		}
 	}
 
-	endIndex := startIndex + pageSize
-	if endIndex > totalCount {
-		endIndex = totalCount
-	}
+	endIndex := min(startIndex+pageSize, totalCount)
 
 	var paginatedTasks []models.Task
 	if startIndex < totalCount {
@@ -188,7 +186,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 			return nil, fmt.Errorf("invalid status %s: %w", *req.Status, ErrInvalidStatus)
 		}
 		task.Status = *req.Status
-		
+
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := time.Now()
@@ -258,13 +256,7 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 			hasAllTags := true
 			for _, tag := range tags {
 				tag = strings.TrimSpace(tag)
-				found := false
-				for _, taskTag := range task.Tags {
-					if taskTag == tag {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(task.Tags, tag)
 				if !found {
 					hasAllTags = false
 					break
