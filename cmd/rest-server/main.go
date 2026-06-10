@@ -10,22 +10,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/task-management-api-nb/task-management-api-nb/internal/config"
 	"github.com/task-management-api-nb/task-management-api-nb/internal/services"
 	"github.com/task-management-api-nb/task-management-api-nb/rest/server"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Get port from environment or use default
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	// Load configuration from environment
+	cfg := config.Load()
 
-	// Set Gin mode based on environment
-	if os.Getenv("GIN_MODE") == "" {
-		gin.SetMode(gin.DebugMode)
-	}
+	// Set Gin mode based on configuration
+	gin.SetMode(cfg.GinMode)
 
 	// Create Gin router
 	router := gin.New()
@@ -44,15 +40,15 @@ func main() {
 
 	// Create HTTP server
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    ":" + cfg.Port,
 		Handler: router,
 	}
 
 	// Start server in a goroutine
 	go func() {
-		fmt.Printf("REST API server starting on http://localhost:%s\n", port)
-		fmt.Printf("Health check: http://localhost:%s/health\n", port)
-		fmt.Printf("API endpoint: http://localhost:%s/api/v1/tasks\n", port)
+		fmt.Printf("REST API server starting on http://localhost:%s\n", cfg.Port)
+		fmt.Printf("Health check: http://localhost:%s/health\n", cfg.Port)
+		fmt.Printf("API endpoint: http://localhost:%s/api/v1/tasks\n", cfg.Port)
 		
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
