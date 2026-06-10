@@ -10,9 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/rest/server"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/task-management/task-management-api-nb/internal/services"
+	"github.com/task-management/task-management-api-nb/rest/server"
 )
 
 func main() {
@@ -33,7 +34,14 @@ func main() {
 	// Add middleware
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
-	router.Use(corsMiddleware())
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length", "Location"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	// Initialize services
 	taskService := services.NewTaskService()
@@ -75,20 +83,4 @@ func main() {
 	}
 
 	log.Println("Server shutdown complete")
-}
-
-// corsMiddleware adds CORS headers to responses
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
-		
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		
-		c.Next()
-	}
 }
