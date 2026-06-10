@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/services"
 	"github.com/gin-gonic/gin"
 )
 

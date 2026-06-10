@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
 	"github.com/google/uuid"
 )
 

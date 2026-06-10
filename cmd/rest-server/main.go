@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
-	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/rest/server"
+	"github.com/task-management-api-nb/task-management-api-nb/internal/services"
+	"github.com/task-management-api-nb/task-management-api-nb/rest/server"
 	"github.com/gin-gonic/gin"
 )
 
