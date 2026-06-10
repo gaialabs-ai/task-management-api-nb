@@ -53,7 +53,7 @@ func (s *TaskService) initializeSampleData() {
 	}
 
 	for _, req := range sampleTasks {
-		s.CreateTask(req)
+		_, _ = s.CreateTask(req)
 	}
 }
 

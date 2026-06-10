@@ -32,11 +32,6 @@ func priorityPtr(p models.TaskPriority) *models.TaskPriority {
 	return &p
 }
 
-// helper to create a time pointer
-func timePtr(t time.Time) *time.Time {
-	return &t
-}
-
 // =============================================================================
 // Task Creation Tests
 // =============================================================================
@@ -326,8 +321,8 @@ func TestDeleteTask_NonExisting(t *testing.T) {
 
 func TestListTasks_NoFilters(t *testing.T) {
 	svc := newCleanService()
-	svc.CreateTask(models.CreateTaskRequest{Title: "A"})
-	svc.CreateTask(models.CreateTaskRequest{Title: "B"})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "A"})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "B"})
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{})
 	require.NoError(t, err)
@@ -338,8 +333,8 @@ func TestListTasks_NoFilters(t *testing.T) {
 func TestListTasks_FilterByStatus(t *testing.T) {
 	svc := newCleanService()
 	task1, _ := svc.CreateTask(models.CreateTaskRequest{Title: "A"})
-	svc.CreateTask(models.CreateTaskRequest{Title: "B"})
-	svc.UpdateTaskStatus(task1.ID, models.TaskStatusInProgress)
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "B"})
+	_, _ = svc.UpdateTaskStatus(task1.ID, models.TaskStatusInProgress)
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		Status: models.TaskStatusInProgress,
@@ -351,9 +346,9 @@ func TestListTasks_FilterByStatus(t *testing.T) {
 
 func TestListTasks_FilterByAssignedTo(t *testing.T) {
 	svc := newCleanService()
-	svc.CreateTask(models.CreateTaskRequest{Title: "A", AssignedTo: strPtr("alice")})
-	svc.CreateTask(models.CreateTaskRequest{Title: "B", AssignedTo: strPtr("bob")})
-	svc.CreateTask(models.CreateTaskRequest{Title: "C"}) // unassigned
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "A", AssignedTo: strPtr("alice")})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "B", AssignedTo: strPtr("bob")})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "C"}) // unassigned
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		AssignedTo: "alice",
@@ -365,8 +360,8 @@ func TestListTasks_FilterByAssignedTo(t *testing.T) {
 
 func TestListTasks_FilterByTagsSingle(t *testing.T) {
 	svc := newCleanService()
-	svc.CreateTask(models.CreateTaskRequest{Title: "A", Tags: []string{"go", "api"}})
-	svc.CreateTask(models.CreateTaskRequest{Title: "B", Tags: []string{"python"}})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "A", Tags: []string{"go", "api"}})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "B", Tags: []string{"python"}})
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		Tags: "go",
@@ -378,8 +373,8 @@ func TestListTasks_FilterByTagsSingle(t *testing.T) {
 
 func TestListTasks_FilterByTagsMultiple(t *testing.T) {
 	svc := newCleanService()
-	svc.CreateTask(models.CreateTaskRequest{Title: "A", Tags: []string{"go", "api", "rest"}})
-	svc.CreateTask(models.CreateTaskRequest{Title: "B", Tags: []string{"go", "grpc"}})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "A", Tags: []string{"go", "api", "rest"}})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "B", Tags: []string{"go", "grpc"}})
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		Tags: "go,api",
@@ -391,7 +386,7 @@ func TestListTasks_FilterByTagsMultiple(t *testing.T) {
 
 func TestListTasks_FilterNoMatchingResults(t *testing.T) {
 	svc := newCleanService()
-	svc.CreateTask(models.CreateTaskRequest{Title: "A"})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "A"})
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		Status: models.TaskStatusCompleted,
@@ -523,7 +518,7 @@ func TestListTasks_DefaultPageSize(t *testing.T) {
 func TestListTasks_CustomPageSize(t *testing.T) {
 	svc := newCleanService()
 	for i := 0; i < 10; i++ {
-		svc.CreateTask(models.CreateTaskRequest{Title: "T"})
+		_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "T"})
 	}
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
@@ -538,7 +533,7 @@ func TestListTasks_CustomPageSize(t *testing.T) {
 func TestListTasks_PageTokenForSecondPage(t *testing.T) {
 	svc := newCleanService()
 	for i := 0; i < 10; i++ {
-		svc.CreateTask(models.CreateTaskRequest{Title: "T"})
+		_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "T"})
 	}
 
 	// Get first page
@@ -569,7 +564,7 @@ func TestListTasks_PageTokenForSecondPage(t *testing.T) {
 
 func TestListTasks_PageTokenBeyondAvailable(t *testing.T) {
 	svc := newCleanService()
-	svc.CreateTask(models.CreateTaskRequest{Title: "Only"})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "Only"})
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		PageToken: "999",
@@ -582,7 +577,7 @@ func TestListTasks_PageTokenBeyondAvailable(t *testing.T) {
 func TestListTasks_NextPageTokenPresentWhenMoreItems(t *testing.T) {
 	svc := newCleanService()
 	for i := 0; i < 5; i++ {
-		svc.CreateTask(models.CreateTaskRequest{Title: "T"})
+		_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "T"})
 	}
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
@@ -596,7 +591,7 @@ func TestListTasks_NextPageTokenPresentWhenMoreItems(t *testing.T) {
 func TestListTasks_NextPageTokenEmptyOnLastPage(t *testing.T) {
 	svc := newCleanService()
 	for i := 0; i < 3; i++ {
-		svc.CreateTask(models.CreateTaskRequest{Title: "T"})
+		_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "T"})
 	}
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
@@ -610,9 +605,9 @@ func TestListTasks_NextPageTokenEmptyOnLastPage(t *testing.T) {
 func TestListTasks_TotalCountReflectsFilteredCount(t *testing.T) {
 	svc := newCleanService()
 	task1, _ := svc.CreateTask(models.CreateTaskRequest{Title: "A"})
-	svc.CreateTask(models.CreateTaskRequest{Title: "B"})
-	svc.CreateTask(models.CreateTaskRequest{Title: "C"})
-	svc.UpdateTaskStatus(task1.ID, models.TaskStatusInProgress)
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "B"})
+	_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "C"})
+	_, _ = svc.UpdateTaskStatus(task1.ID, models.TaskStatusInProgress)
 
 	resp, err := svc.ListTasks(models.ListTasksQuery{
 		Status: models.TaskStatusInProgress,
@@ -678,18 +673,18 @@ func TestConcurrentAccess_ReadsAndWrites(t *testing.T) {
 			switch idx % 4 {
 			case 0:
 				// Create
-				svc.CreateTask(models.CreateTaskRequest{Title: "New"})
+				_, _ = svc.CreateTask(models.CreateTaskRequest{Title: "New"})
 			case 1:
 				// Read
-				svc.GetTask(taskIDs[idx%len(taskIDs)])
+				_, _ = svc.GetTask(taskIDs[idx%len(taskIDs)])
 			case 2:
 				// Update
-				svc.UpdateTask(taskIDs[idx%len(taskIDs)], models.UpdateTaskRequest{
+				_, _ = svc.UpdateTask(taskIDs[idx%len(taskIDs)], models.UpdateTaskRequest{
 					Title: strPtr("Updated"),
 				})
 			case 3:
 				// List
-				svc.ListTasks(models.ListTasksQuery{})
+				_, _ = svc.ListTasks(models.ListTasksQuery{})
 			}
 		}(i)
 	}

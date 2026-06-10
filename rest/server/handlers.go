@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
 	"github.com/task-management-api-nb/task-management-api-nb/internal/services"
-	"github.com/gin-gonic/gin"
 )
 
 // Handler holds the HTTP handlers
