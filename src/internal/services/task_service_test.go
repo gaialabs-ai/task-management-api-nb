@@ -859,6 +859,19 @@ func TestValidation(t *testing.T) {
 		assert.Nil(t, updated)
 		assert.Contains(t, err.Error(), "invalid priority")
 	})
+
+	t.Run("empty title on create via direct service call", func(t *testing.T) {
+		// Note: Title validation (required, min=1, max=200) is enforced by Gin binding
+		// tags at the handler layer, not in the service layer. The service layer accepts
+		// any title string, including empty. This test documents that behavior.
+		svc := createCleanService()
+		task, err := svc.CreateTask(models.CreateTaskRequest{
+			Title: "",
+		})
+		assert.NoError(t, err)
+		assert.NotNil(t, task)
+		assert.Equal(t, "", task.Title)
+	})
 }
 
 // ============================================================
