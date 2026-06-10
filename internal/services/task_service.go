@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -10,6 +11,12 @@ import (
 
 	"github.com/task-management-api-nb/task-management-api-nb/internal/models"
 	"github.com/google/uuid"
+)
+
+var (
+	ErrTaskNotFound    = errors.New("task not found")
+	ErrInvalidStatus   = errors.New("invalid status")
+	ErrInvalidPriority = errors.New("invalid priority")
 )
 
 // TaskService provides task management operations
@@ -114,7 +121,7 @@ func (s *TaskService) GetTask(id string) (*models.Task, error) {
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, fmt.Errorf("task with ID %s not found: %w", id, ErrTaskNotFound)
 	}
 
 	return task, nil
@@ -147,7 +154,7 @@ func (s *TaskService) CreateTask(req models.CreateTaskRequest) (*models.Task, er
 
 	// Validate priority
 	if !task.Priority.IsValid() {
-		return nil, fmt.Errorf("invalid priority: %s", task.Priority)
+		return nil, fmt.Errorf("invalid priority %s: %w", task.Priority, ErrInvalidPriority)
 	}
 
 	// Initialize empty tags slice if nil
@@ -166,7 +173,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, fmt.Errorf("task with ID %s not found: %w", id, ErrTaskNotFound)
 	}
 
 	// Update fields if provided
@@ -178,7 +185,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 	}
 	if req.Status != nil {
 		if !req.Status.IsValid() {
-			return nil, fmt.Errorf("invalid status: %s", *req.Status)
+			return nil, fmt.Errorf("invalid status %s: %w", *req.Status, ErrInvalidStatus)
 		}
 		task.Status = *req.Status
 		
@@ -190,7 +197,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 	}
 	if req.Priority != nil {
 		if !req.Priority.IsValid() {
-			return nil, fmt.Errorf("invalid priority: %s", *req.Priority)
+			return nil, fmt.Errorf("invalid priority %s: %w", *req.Priority, ErrInvalidPriority)
 		}
 		task.Priority = *req.Priority
 	}
@@ -221,7 +228,7 @@ func (s *TaskService) DeleteTask(id string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.tasks[id]; !exists {
-		return fmt.Errorf("task with ID %s not found", id)
+		return fmt.Errorf("task with ID %s not found: %w", id, ErrTaskNotFound)
 	}
 
 	delete(s.tasks, id)
