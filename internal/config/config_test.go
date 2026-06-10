@@ -8,12 +8,16 @@ import (
 
 func TestLoad_DefaultValues(t *testing.T) {
 	t.Run("returns default port 8080 when PORT is not set", func(t *testing.T) {
+		t.Setenv("PORT", "")
+
 		cfg := Load()
 
 		assert.Equal(t, "8080", cfg.Port)
 	})
 
 	t.Run("returns default gin mode debug when GIN_MODE is not set", func(t *testing.T) {
+		t.Setenv("GIN_MODE", "")
+
 		cfg := Load()
 
 		assert.Equal(t, "debug", cfg.GinMode)
