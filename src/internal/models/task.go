@@ -79,19 +79,6 @@ type UpdateTaskStatusRequest struct {
 	Status TaskStatus `json:"status" binding:"required"`
 }
 
-// SearchTasksQuery represents query parameters for searching tasks
-type SearchTasksQuery struct {
-	Query    string `form:"q" binding:"required,min=1"`
-	PageSize int    `form:"page_size,default=20" binding:"min=1,max=100"`
-}
-
-// SearchTasksResponse represents the response for searching tasks
-type SearchTasksResponse struct {
-	Tasks      []Task `json:"tasks"`
-	TotalCount int    `json:"total_count"`
-	Query      string `json:"query"`
-}
-
 // ListTasksQuery represents query parameters for listing tasks
 type ListTasksQuery struct {
 	PageSize   int        `form:"page_size,default=20" binding:"min=1,max=100"`
@@ -107,13 +94,6 @@ type ListTasksResponse struct {
 	Tasks         []Task `json:"tasks"`
 	NextPageToken string `json:"next_page_token,omitempty"`
 	TotalCount    int    `json:"total_count"`
-}
-
-// TaskStats represents aggregate counts of tasks
-type TaskStats struct {
-	Total      int                  `json:"total"`
-	ByStatus   map[TaskStatus]int   `json:"by_status"`
-	ByPriority map[TaskPriority]int `json:"by_priority"`
 }
 
 // ErrorResponse represents an error response
