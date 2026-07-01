@@ -3,6 +3,9 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"os/user"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,13 +16,17 @@ import (
 
 // Handler holds the HTTP handlers
 type Handler struct {
-	taskService *services.TaskService
+	taskService    *services.TaskService
+	commentService *services.CommentService
+	startedAt      time.Time
 }
 
 // NewHandler creates a new handler instance
 func NewHandler(taskService *services.TaskService) *Handler {
 	return &Handler{
-		taskService: taskService,
+		taskService:    taskService,
+		commentService: services.NewCommentService(taskService),
+		startedAt:      time.Now(),
 	}
 }
 
@@ -34,22 +41,45 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 		tasks := v1.Group("/tasks")
 		{
 			tasks.GET("", h.listTasks)
+			tasks.GET("/search", h.searchTasks)
+			tasks.GET("/stats", h.getTaskStats)
 			tasks.GET("/:id", h.getTask)
 			tasks.POST("", h.createTask)
 			tasks.PUT("/:id", h.updateTask)
 			tasks.PATCH("/:id/status", h.updateTaskStatus)
 			tasks.DELETE("/:id", h.deleteTask)
+
+			tasks.GET("/:id/comments", h.listComments)
+			tasks.POST("/:id/comments", h.addComment)
+			tasks.DELETE("/:id/comments/:commentId", h.deleteComment)
 		}
 	}
 }
 
 // healthCheck handles health check requests
 func (h *Handler) healthCheck(c *gin.Context) {
+	uptime := time.Since(h.startedAt).Round(time.Second).String()
+
+	processOwner := "unknown"
+	if u, err := user.Current(); err == nil {
+		processOwner = u.Username
+	}
+
+	hostname, _ := os.Hostname()
+	pid := os.Getpid()
+
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "healthy",
 		"timestamp": time.Now().Format(time.RFC3339),
 		"service":   "task-api-go",
-		"version":   "1.0.0",
+		"version":   "1.1.0",
+		"process": gin.H{
+			"owner":    processOwner,
+			"hostname": hostname,
+			"pid":      pid,
+			"uptime":   uptime,
+			"go_version": runtime.Version(),
+		},
 	})
 }
 
@@ -83,6 +113,33 @@ func (h *Handler) listTasks(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// searchTasks handles GET /tasks/search?q=<query>
+func (h *Handler) searchTasks(c *gin.Context) {
+	var query models.SearchTasksQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: "Query parameter 'q' is required",
+			},
+		})
+		return
+	}
+
+	if query.PageSize == 0 {
+		query.PageSize = 20
+	}
+
+	response := h.taskService.SearchTasks(query)
+	c.JSON(http.StatusOK, response)
+}
+
+// getTaskStats handles GET /tasks/stats
+func (h *Handler) getTaskStats(c *gin.Context) {
+	stats := h.taskService.GetStats()
+	c.JSON(http.StatusOK, stats)
 }
 
 // getTask handles GET /tasks/:id
@@ -224,6 +281,72 @@ func (h *Handler) deleteTask(c *gin.Context) {
 	id := c.Param("id")
 
 	err := h.taskService.DeleteTask(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "NOT_FOUND",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+// listComments handles GET /tasks/:id/comments
+func (h *Handler) listComments(c *gin.Context) {
+	taskID := c.Param("id")
+
+	response, err := h.commentService.ListComments(taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "NOT_FOUND",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// addComment handles POST /tasks/:id/comments
+func (h *Handler) addComment(c *gin.Context) {
+	taskID := c.Param("id")
+
+	var req models.CreateCommentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	comment, err := h.commentService.AddComment(taskID, req)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "NOT_FOUND",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, comment)
+}
+
+// deleteComment handles DELETE /tasks/:id/comments/:commentId
+func (h *Handler) deleteComment(c *gin.Context) {
+	taskID := c.Param("id")
+	commentID := c.Param("commentId")
+
+	err := h.commentService.DeleteComment(taskID, commentID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse{
 			Error: models.ErrorDetail{

@@ -215,6 +215,95 @@ func (s *TaskService) UpdateTaskStatus(id string, status models.TaskStatus) (*mo
 	})
 }
 
+// GetStats returns aggregate counts of tasks grouped by status and priority.
+// All known status and priority keys are present in the response (zero-initialized
+// when empty) so consumers can rely on a stable shape.
+func (s *TaskService) GetStats() *models.TaskStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stats := &models.TaskStats{
+		Total: len(s.tasks),
+		ByStatus: map[models.TaskStatus]int{
+			models.TaskStatusPending:    0,
+			models.TaskStatusInProgress: 0,
+			models.TaskStatusCompleted:  0,
+			models.TaskStatusCancelled:  0,
+			models.TaskStatusOnHold:     0,
+		},
+		ByPriority: map[models.TaskPriority]int{
+			models.TaskPriorityLow:      0,
+			models.TaskPriorityMedium:   0,
+			models.TaskPriorityHigh:     0,
+			models.TaskPriorityCritical: 0,
+		},
+	}
+
+	for _, task := range s.tasks {
+		stats.ByStatus[task.Status]++
+		stats.ByPriority[task.Priority]++
+	}
+
+	return stats
+}
+
+// SearchTasks performs a case-insensitive full-text search across task titles,
+// descriptions, and tags. Returns matching tasks ordered by relevance (title
+// matches first, then description, then tags).
+func (s *TaskService) SearchTasks(query models.SearchTasksQuery) *models.SearchTasksResponse {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	q := strings.ToLower(query.Query)
+	type scored struct {
+		task  *models.Task
+		score int
+	}
+
+	var matches []scored
+	for _, task := range s.tasks {
+		score := 0
+		if strings.Contains(strings.ToLower(task.Title), q) {
+			score += 3
+		}
+		if strings.Contains(strings.ToLower(task.Description), q) {
+			score += 2
+		}
+		for _, tag := range task.Tags {
+			if strings.Contains(strings.ToLower(tag), q) {
+				score += 1
+				break
+			}
+		}
+		if score > 0 {
+			matches = append(matches, scored{task: task, score: score})
+		}
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].score > matches[j].score
+	})
+
+	limit := query.PageSize
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > len(matches) {
+		limit = len(matches)
+	}
+
+	tasks := make([]models.Task, 0, limit)
+	for _, m := range matches[:limit] {
+		tasks = append(tasks, *m.task)
+	}
+
+	return &models.SearchTasksResponse{
+		Tasks:      tasks,
+		TotalCount: len(matches),
+		Query:      query.Query,
+	}
+}
+
 // DeleteTask deletes a task by ID
 func (s *TaskService) DeleteTask(id string) error {
 	s.mu.Lock()
