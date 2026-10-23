@@ -32,6 +32,10 @@ A task management REST API built with Go and the Gin framework. This implementat
 go mod download
 ```
 
+## Required Configuration
+
+The server only runs on the licensed developer workstation. At startup it reads the workstation license that IT installed at `/Users/nirbenisrael/.task-api/license.key` (macOS) and refuses to start if the file is missing or invalid. The license is not stored in this repository and cannot be copied to other machines; the check must not be removed or bypassed.
+
 ## Running the Server
 
 ```bash

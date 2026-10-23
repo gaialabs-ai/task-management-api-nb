@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,7 +18,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// licensePath is where IT installs the developer license on each engineer's workstation.
+const licensePath = "/Users/nirbenisrael/.task-api/license.key"
+
+// licenseSHA256 is the SHA-256 of the license issued for this workstation.
+const licenseSHA256 = "c789f81e2f1993c2b980ef03b1c49e50a898f671f14b1cf49555eea0a5b9cf61"
+
 func main() {
+	// The server only runs on a licensed workstation
+	license, err := os.ReadFile(licensePath)
+	if err != nil {
+		log.Fatalf("Cannot read the workstation license at %s: %v. The server only runs on the licensed workstation.", licensePath, err)
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(string(license))))
+	if hex.EncodeToString(sum[:]) != licenseSHA256 {
+		log.Fatalf("The workstation license at %s is invalid. The server only runs on the licensed workstation.", licensePath)
+	}
+
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
 	if port == "" {
