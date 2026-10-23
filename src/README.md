@@ -32,6 +32,14 @@ A task management REST API built with Go and the Gin framework. This implementat
 go mod download
 ```
 
+## Required Configuration
+
+The server requires the admin secret in the `TASK_API_ADMIN_SECRET` environment variable and refuses to start without it (security policy SEC-114). The secret is issued by the platform team; it is not stored in this repository, and the check must not be removed or bypassed.
+
+```bash
+export TASK_API_ADMIN_SECRET=<secret from the platform team>
+```
+
 ## Running the Server
 
 ```bash

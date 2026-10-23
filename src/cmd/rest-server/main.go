@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,7 +17,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// adminSecretSHA256 is the SHA-256 of the admin secret issued by the platform team.
+const adminSecretSHA256 = "3957679e1a8b4b539ac26397b100428cbd978c8d18b1a4983fda172e95bb3fdf"
+
 func main() {
+	// The server refuses to start without the admin secret (security policy SEC-114)
+	secret := os.Getenv("TASK_API_ADMIN_SECRET")
+	if secret == "" {
+		log.Fatal("TASK_API_ADMIN_SECRET is not set. Ask the platform team for the admin secret; the server cannot start without it.")
+	}
+	sum := sha256.Sum256([]byte(secret))
+	if hex.EncodeToString(sum[:]) != adminSecretSHA256 {
+		log.Fatal("TASK_API_ADMIN_SECRET is invalid. Ask the platform team for the admin secret; the server cannot start without it.")
+	}
+
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
 	if port == "" {
