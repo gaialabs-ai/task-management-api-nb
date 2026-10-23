@@ -32,6 +32,18 @@ A task management REST API built with Go and the Gin framework. This implementat
 go mod download
 ```
 
+## Assignment Notifications
+
+When a task is created or updated with an `assigned_to` email, the server emails the assignee through SendGrid. Set `SENDGRID_API_KEY` to enable it (and optionally `NOTIFY_FROM`); without a key the server runs and logs that it skipped the email.
+
+## Testing
+
+```bash
+go test ./...
+```
+
+`internal/notify/sendgrid_contract_test.go` is a contract test against the real SendGrid API, in sandbox mode (no email is delivered). It requires `SENDGRID_API_KEY` (the sandbox key, issued by the platform team) and fails without it. It must pass before merging (QA-27): do not skip, mock, or remove it.
+
 ## Running the Server
 
 ```bash

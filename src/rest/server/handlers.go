@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/user"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
+	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/notify"
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +21,7 @@ import (
 type Handler struct {
 	taskService    *services.TaskService
 	commentService *services.CommentService
+	notifier       *notify.Notifier
 	startedAt      time.Time
 }
 
@@ -26,6 +30,7 @@ func NewHandler(taskService *services.TaskService) *Handler {
 	return &Handler{
 		taskService:    taskService,
 		commentService: services.NewCommentService(taskService),
+		notifier:       notify.FromEnv(),
 		startedAt:      time.Now(),
 	}
 }
@@ -184,8 +189,27 @@ func (h *Handler) createTask(c *gin.Context) {
 		return
 	}
 
+	if task.AssignedTo != nil {
+		h.notifyAssigned(*task.AssignedTo, task.Title)
+	}
+
 	c.Header("Location", "/api/v1/tasks/"+task.ID)
 	c.JSON(http.StatusCreated, task)
+}
+
+// notifyAssigned emails the assignee in the background; a failure never fails the request.
+func (h *Handler) notifyAssigned(assignee, title string) {
+	if !h.notifier.Enabled() {
+		log.Printf("SENDGRID_API_KEY is not set; not notifying %s", assignee)
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := h.notifier.TaskAssigned(ctx, assignee, title); err != nil {
+			log.Printf("Failed to notify %s: %v", assignee, err)
+		}
+	}()
 }
 
 // updateTask handles PUT /tasks/:id
@@ -224,6 +248,10 @@ func (h *Handler) updateTask(c *gin.Context) {
 			},
 		})
 		return
+	}
+
+	if req.AssignedTo != nil && task.AssignedTo != nil {
+		h.notifyAssigned(*task.AssignedTo, task.Title)
 	}
 
 	c.JSON(http.StatusOK, task)
