@@ -13,6 +13,7 @@ import (
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/rest/server"
 	"github.com/gin-gonic/gin"
+	"go.gaialabs.internal/authz"
 )
 
 func main() {
@@ -34,6 +35,8 @@ func main() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
+	// Every request is authorized by the company authz service
+	router.Use(authz.Middleware(authz.FromEnv()))
 
 	// Initialize services
 	taskService := services.NewTaskService()

@@ -25,6 +25,16 @@ A task management REST API built with Go and the Gin framework. This implementat
 
 - Go 1.21 or higher
 
+## Internal Dependencies
+
+Requests are authorized by `go.gaialabs.internal/authz`, the company authorization module. It is served only by the internal Go module proxy, which is reachable from the company network or over the corporate VPN. Configure Go to fetch it directly:
+
+```bash
+export GOPRIVATE=go.gaialabs.internal
+```
+
+The module is required in production: do not stub it, vendor a copy, or remove it.
+
 ## Installation
 
 ```bash
