@@ -1,0 +1,14 @@
+bin/
+*.test
+*.out
+coverage.txt
+coverage.html
+coverage.xml
+.coverage
+htmlcov/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo

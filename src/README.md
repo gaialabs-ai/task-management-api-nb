@@ -13,10 +13,13 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
-│       └── task_service.go
+│       ├── comment_service.go
+│       ├── task_service.go
+│       └── task_service_test.go
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
-│       └── handlers.go
+│       ├── handlers.go
+│       └── handlers_test.go
 ├── go.mod                  # Go module definition
 └── README.md
 ```
@@ -63,6 +66,10 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (due date in the past, status not `completed`/`cancelled`), ordered by due date ascending (ties broken by ID)
+  - Query params: `page_size`, `page_token`
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email
+  - Body: `{"assigned_to": "user@example.com"}`
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
@@ -135,10 +142,42 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
   -d '{"status": "in_progress"}'
 ```
 
+### List Overdue Tasks
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue"
+
+# With pagination (use next_page_token from the previous response)
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10&page_token=10"
+```
+
+Returns `200` with `{"tasks": [...], "next_page_token": "...", "total_count": N}`. An invalid `page_size` (outside 1-100) returns `400 VALIDATION_ERROR`.
+
+### Assign a Task
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Returns `200` with the updated task. `assigned_to` must be a bare email address (display names such as `Alice <alice@example.com>` are rejected). Errors:
+- `400 VALIDATION_ERROR` - missing/malformed body or invalid email
+- `404 NOT_FOUND` - unknown task ID
+
+**Notification note:** assigning a task triggers a `Notifier`. The current implementation is a minimal logging notifier (it only writes a log line); a failing notifier is logged and does not fail the request. No real delivery (email, etc.) exists yet, and this gap should be confirmed with the project owner.
+
 ### Delete a Task
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+## Testing
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+Tests build the router via `server.NewHandler` + `RegisterRoutes` and inject a fixed clock and fake notifier through `TaskService.SetClock` / `SetNotifier`.
 
 ## Features
 
