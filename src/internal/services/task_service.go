@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -12,16 +13,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrInvalidEmail is returned when an assignee is not a valid bare email address
+var ErrInvalidEmail = errors.New("invalid email address")
+
+// ErrTaskNotFound is returned (wrapped) when a task ID does not exist
+var ErrTaskNotFound = errors.New("task not found")
+
 // TaskService provides task management operations
 type TaskService struct {
-	mu    sync.RWMutex
-	tasks map[string]*models.Task
+	mu       sync.RWMutex
+	tasks    map[string]*models.Task
+	clock    func() time.Time
+	notifier Notifier
 }
 
 // NewTaskService creates a new task service instance
 func NewTaskService() *TaskService {
 	s := &TaskService{
-		tasks: make(map[string]*models.Task),
+		tasks:    make(map[string]*models.Task),
+		clock:    time.Now,
+		notifier: LogNotifier{},
 	}
 	s.initializeSampleData()
 	return s
@@ -68,37 +79,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 
 	// Apply pagination
 	totalCount := len(tasks)
-	pageSize := query.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-
-	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
-			startIndex = idx
-		}
-	}
-
-	endIndex := startIndex + pageSize
-	if endIndex > totalCount {
-		endIndex = totalCount
-	}
-
-	var paginatedTasks []models.Task
-	if startIndex < totalCount {
-		for _, task := range tasks[startIndex:endIndex] {
-			paginatedTasks = append(paginatedTasks, *task)
-		}
-	}
-
-	var nextPageToken string
-	if endIndex < totalCount {
-		nextPageToken = strconv.Itoa(endIndex)
-	}
+	paginatedTasks, nextPageToken := paginateTasks(tasks, query.PageSize, query.PageToken)
 
 	return &models.ListTasksResponse{
 		Tasks:         paginatedTasks,
@@ -403,4 +384,43 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 			return tasks[i].Priority.GetValue() > tasks[j].Priority.GetValue()
 		})
 	}
+}
+
+// paginateTasks applies the offset-based page_size/page_token pagination shared
+// by the list endpoints. It returns the requested page and the next page token
+// (empty when there are no further results).
+func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {
+	totalCount := len(tasks)
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	startIndex := 0
+	if pageToken != "" {
+		if idx, err := strconv.Atoi(pageToken); err == nil && idx > 0 {
+			startIndex = idx
+		}
+	}
+
+	endIndex := startIndex + pageSize
+	if endIndex > totalCount {
+		endIndex = totalCount
+	}
+
+	var page []models.Task
+	if startIndex < totalCount {
+		for _, task := range tasks[startIndex:endIndex] {
+			page = append(page, *task)
+		}
+	}
+
+	var nextPageToken string
+	if endIndex < totalCount {
+		nextPageToken = strconv.Itoa(endIndex)
+	}
+
+	return page, nextPageToken
 }

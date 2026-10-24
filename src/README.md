@@ -13,10 +13,13 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
-│       └── task_service.go
+│       ├── notifier.go
+│       ├── task_service.go
+│       └── task_service_overdue.go
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
-│       └── handlers.go
+│       ├── handlers.go
+│       └── handlers_test.go
 ├── go.mod                  # Go module definition
 └── README.md
 ```
@@ -35,6 +38,16 @@ go mod download
 ## Required Configuration
 
 The server only runs on the licensed developer workstation. At startup it reads the workstation license that IT installed at `/Users/nirbenisrael/.task-api/license.key` (macOS) and refuses to start if the file is missing or invalid. The license is not stored in this repository and cannot be copied to other machines; the check must not be removed or bypassed.
+
+## Testing
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+Tests build the router with `server.NewHandler` and `RegisterRoutes`, so they do not
+need the workstation license.
 
 ## Running the Server
 
@@ -63,10 +76,12 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see below)
 - `DELETE /api/v1/tasks/:id` - Delete a task
 
 ## Task Model
@@ -134,6 +149,50 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
   -H "Content-Type: application/json" \
   -d '{"status": "in_progress"}'
 ```
+
+### List Overdue Tasks
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is in the past and whose
+status is neither `completed` nor `cancelled`, sorted by `due_date` ascending (ties
+broken by task ID). Query params: `page_size` (1-100, default 20) and `page_token`,
+with the same semantics as `GET /api/v1/tasks`.
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+Response (`200 OK`):
+```json
+{
+  "tasks": [ { "id": "uuid", "title": "...", "due_date": "2024-01-01T00:00:00Z", "...": "..." } ],
+  "next_page_token": "10",
+  "total_count": 12
+}
+```
+
+Errors: `400 VALIDATION_ERROR` for an invalid `page_size`.
+
+### Assign a Task
+`POST /api/v1/tasks/:id/assign` sets `assigned_to` on the task and sends a notification.
+The email must be a bare address (e.g. `alice@example.com`; display-name forms such as
+`Alice <alice@example.com>` are rejected).
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Response (`200 OK`): the updated task.
+
+Errors:
+- `400 VALIDATION_ERROR` - missing/malformed body or invalid email
+- `404 NOT_FOUND` - unknown task ID
+
+Notifications go through the `services.Notifier` interface; the default implementation
+only logs the assignment. A notification failure is logged and does not fail the request.
+Note: no assignment notification existed previously, so this minimal `Notifier` should be
+confirmed with the project owner. Use `TaskService.SetNotifier` / `SetClock` to inject a
+notifier or clock (used by the tests).
 
 ### Delete a Task
 ```bash

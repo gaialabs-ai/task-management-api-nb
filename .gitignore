@@ -1,0 +1,17 @@
+# Go build output
+bin/
+*.test
+*.out
+
+# Python / functional testing artifacts
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
