@@ -1,8 +1,10 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/user"
 	"runtime"
@@ -43,9 +45,12 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 			tasks.GET("", h.listTasks)
 			tasks.GET("/search", h.searchTasks)
 			tasks.GET("/stats", h.getTaskStats)
+			// Must be registered before "/:id" so "overdue" is not treated as an ID.
+			tasks.GET("/overdue", h.listOverdueTasks)
 			tasks.GET("/:id", h.getTask)
 			tasks.POST("", h.createTask)
 			tasks.PUT("/:id", h.updateTask)
+			tasks.POST("/:id/assign", h.assignTask)
 			tasks.PATCH("/:id/status", h.updateTaskStatus)
 			tasks.DELETE("/:id", h.deleteTask)
 
@@ -140,6 +145,72 @@ func (h *Handler) searchTasks(c *gin.Context) {
 func (h *Handler) getTaskStats(c *gin.Context) {
 	stats := h.taskService.GetStats()
 	c.JSON(http.StatusOK, stats)
+}
+
+// listOverdueTasks handles GET /tasks/overdue
+func (h *Handler) listOverdueTasks(c *gin.Context) {
+	var query models.OverdueTasksQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, h.taskService.ListOverdueTasks(query))
+}
+
+// assignTask handles POST /tasks/:id/assign
+func (h *Handler) assignTask(c *gin.Context) {
+	id := c.Param("id")
+
+	var req models.AssignTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	email := strings.TrimSpace(req.AssignedTo)
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: "assigned_to must be a valid email address",
+			},
+		})
+		return
+	}
+
+	task, err := h.taskService.AssignTask(id, email)
+	if err != nil {
+		if errors.Is(err, services.ErrTaskNotFound) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{
+				Error: models.ErrorDetail{
+					Code:    "NOT_FOUND",
+					Message: err.Error(),
+				},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "INTERNAL_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
 }
 
 // getTask handles GET /tasks/:id

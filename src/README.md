@@ -13,6 +13,7 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
+│       ├── notifier.go
 │       └── task_service.go
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
@@ -67,11 +68,56 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email (see below)
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+
+### Overdue Tasks
+
+`GET /api/v1/tasks/overdue` returns tasks that have a `due_date` strictly before the current time and whose status is neither `completed` nor `cancelled`. Tasks without a due date are never overdue. Results are sorted by `due_date` ascending (task ID as tiebreaker).
+
+Query params:
+- `page_size` - 1 to 100, default 20 (values outside the range return `400 VALIDATION_ERROR`)
+- `page_token` - opaque token from a previous response's `next_page_token` (an index into the result list)
+
+Response (same shape as the task list):
+```json
+{
+  "tasks": [ { "id": "uuid", "title": "...", "due_date": "2025-01-01T00:00:00Z" } ],
+  "next_page_token": "20",
+  "total_count": 57
+}
+```
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+### Assign a Task
+
+`POST /api/v1/tasks/:id/assign` sets the task's `assigned_to` and `updated_at`, then sends an assignment notification.
+
+Request body:
+```json
+{"assigned_to": "alice@example.com"}
+```
+
+Responses:
+- `200 OK` - the updated task
+- `400 Bad Request` (`VALIDATION_ERROR`) - malformed body, missing `assigned_to`, or a value that is not a plain email address (validated with `net/mail`; the `Name <addr>` form is rejected)
+- `404 Not Found` (`NOT_FOUND`) - unknown task ID
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Notifications go through the `services.Notifier` interface (`internal/services/notifier.go`). The default implementation only logs the assignment. A custom notifier can be supplied with `services.NewTaskService(services.WithNotifier(n))`; notifier errors are logged and never fail the request. `services.WithClock(fn)` overrides the clock used for overdue calculations (useful in tests).
 
 ## Task Model
 
@@ -142,6 +188,12 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ### Delete a Task
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
+```
+
+## Testing
+
+```bash
+go test ./...
 ```
 
 ## Features
