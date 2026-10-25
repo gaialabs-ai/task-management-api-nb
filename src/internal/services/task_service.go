@@ -118,10 +118,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	// pagination is stable; the requested sort order is applied stably on top.
 	// Intentional change vs. the original: the default order used to be random map order.
 	sort.Slice(tasks, func(i, j int) bool {
-		if !tasks[i].CreatedAt.Equal(tasks[j].CreatedAt) {
-			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
-		}
-		return tasks[i].ID < tasks[j].ID
+		return taskCreatedBefore(tasks[i], tasks[j])
 	})
 
 	// Apply sorting
@@ -138,10 +135,19 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	}, nil
 }
 
+// taskCreatedBefore is the deterministic base ordering: created_at ascending,
+// ties broken by ID.
+func taskCreatedBefore(a, b *models.Task) bool {
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Before(b.CreatedAt)
+	}
+	return a.ID < b.ID
+}
+
 // paginateTasks applies page_size/page_token offset pagination to an already
 // filtered and sorted slice. Page size defaults to 20 and is capped at 100; the
 // token is a decimal offset (invalid or negative tokens are treated as 0; the
-// original code panicked on negative offsets). It returns copies
+// original code panicked on negative offsets). It returns deep copies
 // of the tasks on the page (nil when the page is empty) and the next page token
 // ("" when there are no more results).
 func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {
@@ -168,7 +174,7 @@ func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]mode
 	var page []models.Task
 	if startIndex < totalCount {
 		for _, task := range tasks[startIndex:endIndex] {
-			page = append(page, *task)
+			page = append(page, cloneTask(*task))
 		}
 	}
 
@@ -204,20 +210,16 @@ func (s *TaskService) ListOverdueTasks(query models.ListTasksQuery) (*models.Lis
 		if !a.DueDate.Equal(*b.DueDate) {
 			return a.DueDate.Before(*b.DueDate)
 		}
-		if !a.CreatedAt.Equal(b.CreatedAt) {
-			return a.CreatedAt.Before(b.CreatedAt)
-		}
-		return a.ID < b.ID
+		return taskCreatedBefore(a, b)
 	})
 
 	page, next := paginateTasks(overdue, query.PageSize, query.PageToken)
-	copies := make([]models.Task, len(page))
-	for i := range page {
-		copies[i] = cloneTask(page[i])
+	if page == nil {
+		page = []models.Task{}
 	}
 
 	return &models.ListTasksResponse{
-		Tasks:         copies,
+		Tasks:         page,
 		NextPageToken: next,
 		TotalCount:    len(overdue),
 	}, nil

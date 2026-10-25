@@ -1248,3 +1248,18 @@ func TestTaskLookups_MissingIDReturnsErrTaskNotFound(t *testing.T) {
 		})
 	}
 }
+
+func TestListTasks_ReturnsDeepCopies(t *testing.T) {
+	svc, _ := newEmptyService(t, baseNow)
+	created := createAt(t, svc, baseNow, models.CreateTaskRequest{Title: "work", Tags: []string{"a", "b"}})
+
+	res, err := svc.ListTasks(models.ListTasksQuery{PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Tasks[0].Tags[0] = "mutated"
+
+	if got := storedCopy(t, svc, created.ID).Tags[0]; got != "a" {
+		t.Fatalf("stored tag = %q after mutating returned task, want %q", got, "a")
+	}
+}
