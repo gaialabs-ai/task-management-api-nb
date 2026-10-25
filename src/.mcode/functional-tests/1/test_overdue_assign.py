@@ -8,7 +8,7 @@ API = BASE + "/api/v1/tasks"
 
 
 def _start(fail_notifier):
-    env = dict(os.environ, PORT=PORT, FAIL_NOTIFIER="1" if fail_notifier else "0")
+    env = dict(os.environ, PORT=PORT, FAIL_NOTIFIER="1" if fail_notifier else "0", FT_HARNESS_TEST_ONLY="1")
     p = subprocess.Popen(["/tmp/ft_harness"], env=env, cwd=SRC,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(50):

@@ -1,5 +1,9 @@
-// Test harness: serves the real router (server.NewHandler + RegisterRoutes)
-// without the workstation license check in cmd/rest-server. Does not modify app code.
+// TEST-ONLY functional-test harness. It builds the router the same way the unit/HTTP
+// tests do (server.NewHandler + RegisterRoutes) with an in-memory TaskService, and is
+// NOT a substitute for cmd/rest-server: the workstation license check there is
+// unchanged and remains the only supported way to run the server. To keep this from
+// being used as a license-free server, it refuses to start unless FT_HARNESS_TEST_ONLY=1
+// is set by the functional-test runner, and it listens on 127.0.0.1 only.
 package main
 
 import (
@@ -18,6 +22,9 @@ type failNotifier struct{}
 func (failNotifier) NotifyAssigned(models.Task, string) error { return errors.New("smtp down") }
 
 func main() {
+	if os.Getenv("FT_HARNESS_TEST_ONLY") != "1" {
+		log.Fatal("functional-test harness is test-only; run the licensed server via cmd/rest-server instead")
+	}
 	gin.SetMode(gin.ReleaseMode)
 	svc := services.NewTaskService()
 	if os.Getenv("FAIL_NOTIFIER") == "1" {
@@ -30,5 +37,5 @@ func main() {
 	if port == "" {
 		port = "18080"
 	}
-	log.Fatal(r.Run(":" + port))
+	log.Fatal(r.Run("127.0.0.1:" + port))
 }
