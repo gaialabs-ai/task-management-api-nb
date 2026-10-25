@@ -190,3 +190,57 @@ class TestListPaginationRegression:
         assert requests.get(API, params={"page_size": 101}, timeout=5).status_code == 400
         j = requests.get(API, params={"page_token": "99999"}, timeout=5).json()
         assert not j.get("tasks") and not j.get("next_page_token")
+
+
+class TestTaskNotFoundMapping:
+    MISSING = "ftrun-missing-task-id"
+
+    def _assert_404(self, r):
+        assert r.status_code == 404, r.text
+        err = r.json()["error"]
+        assert err["code"] == "NOT_FOUND"
+        assert err["message"] == f"task with ID {self.MISSING} not found"
+
+    def test_get_missing(self, srv):
+        self._assert_404(requests.get(f"{API}/{self.MISSING}", timeout=5))
+
+    def test_put_missing(self, srv):
+        self._assert_404(requests.put(f"{API}/{self.MISSING}", json={"title": "x"}, timeout=5))
+
+    def test_patch_status_missing(self, srv):
+        self._assert_404(requests.patch(f"{API}/{self.MISSING}/status", json={"status": "completed"}, timeout=5))
+
+    def test_delete_missing(self, srv):
+        self._assert_404(requests.delete(f"{API}/{self.MISSING}", timeout=5))
+
+    def test_list_comments_missing_task(self, srv):
+        self._assert_404(requests.get(f"{API}/{self.MISSING}/comments", timeout=5))
+
+    def test_add_comment_missing_task(self, srv):
+        self._assert_404(requests.post(f"{API}/{self.MISSING}/comments",
+                                       json={"author": "a@b.com", "body": "hi"}, timeout=5))
+
+    def test_put_existing_ok_and_invalid_status(self, srv):
+        t = mk("ftrun_put")
+        r = requests.put(f"{API}/{t['id']}", json={"title": "ftrun_put_renamed"}, timeout=5)
+        assert r.status_code == 200 and r.json()["title"] == "ftrun_put_renamed"
+        r = requests.patch(f"{API}/{t['id']}/status", json={"status": "in_progress"}, timeout=5)
+        assert r.status_code == 200 and r.json()["status"] == "in_progress"
+        r = requests.patch(f"{API}/{t['id']}/status", json={"status": "bogus"}, timeout=5)
+        assert r.status_code == 400
+
+
+class TestDefaultPageSize:
+    def test_default_page_size_20_list_and_overdue(self, srv):
+        for i in range(25):
+            mk(f"ftrun_dflt_{i}", iso(-30))
+        r = requests.get(API, timeout=5).json()
+        assert len(r["tasks"]) == 20 and r.get("next_page_token")
+        r = requests.get(API + "/overdue", timeout=5).json()
+        assert len(r["tasks"]) == 20 and r.get("next_page_token")
+
+    def test_negative_page_token_is_first_page(self, srv):
+        a = requests.get(API + "/overdue", params={"page_size": 3}, timeout=5)
+        b = requests.get(API + "/overdue", params={"page_size": 3, "page_token": "-5"}, timeout=5)
+        assert a.status_code == 200 and b.status_code == 200
+        assert [t["id"] for t in a.json()["tasks"]] == [t["id"] for t in b.json()["tasks"]]
