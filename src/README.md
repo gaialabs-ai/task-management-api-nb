@@ -13,10 +13,13 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
-│       └── task_service.go
+│       ├── task_service.go
+│       ├── comment_service.go
+│       └── task_service_test.go   # Service unit tests (overdue, assign, pagination)
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
-│       └── handlers.go
+│       ├── handlers.go
+│       └── handlers_test.go       # HTTP-level tests (pagination, overdue, assign)
 ├── go.mod                  # Go module definition
 └── README.md
 ```
@@ -63,11 +66,153 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/search` - Search tasks by title, description, and tags (`q`, `page_size`)
+- `GET /api/v1/tasks/stats` - Task counts by status and priority
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see [Overdue Tasks](#overdue-tasks))
+  - Query params: `page_size`, `page_token`
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see [Assigning Tasks](#assigning-tasks))
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+- `GET /api/v1/tasks/:id/comments` - List comments on a task
+- `POST /api/v1/tasks/:id/comments` - Add a comment to a task
+- `DELETE /api/v1/tasks/:id/comments/:commentId` - Delete a comment
+
+## Overdue Tasks
+
+`GET /api/v1/tasks/overdue` returns tasks that are past due.
+
+**Definition.** A task is overdue when both of the following hold:
+- it has a `due_date` (tasks without one are never overdue) that is strictly before the current time (a task due exactly "now" is not overdue); and
+- its status is neither `completed` nor `cancelled`.
+
+**Ordering.** Results are sorted by `due_date` ascending (most overdue first). Ties are broken deterministically by `created_at` ascending, then by `id`, so pages are stable.
+
+**Pagination.** Uses the same `page_size` / `page_token` offset logic as `GET /api/v1/tasks`:
+- `page_size` defaults to 20 when omitted. The handler binds the query with the same rules as `GET /api/v1/tasks`, so a value outside 1-100 (or a non-integer) is rejected with `400 VALIDATION_ERROR`. The service additionally caps the page size at 100.
+- `page_token` is the opaque offset returned as `next_page_token` by the previous page. An invalid token is treated as the start; a token past the end yields an empty page.
+- The response contains `tasks`, `next_page_token` (omitted on the last page), and `total_count` (the total number of overdue tasks across all pages, not just this page). `tasks` is always a JSON array, `[]` when nothing is overdue.
+
+**Other query params.** The handler binds the same query struct as `GET /api/v1/tasks` (`page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`), but only `page_size` and `page_token` affect the overdue result. `status`, `assigned_to`, `tags`, and `sort_order` are accepted but ignored; ordering is always as described above.
+
+**Routing.** The route is registered before `GET /api/v1/tasks/:id`, so `overdue` is matched as this endpoint and not treated as a task ID.
+
+```bash
+# First page of overdue tasks
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=2"
+
+# Next page (use next_page_token from the previous response)
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=2&page_token=2"
+```
+
+Example response:
+```json
+{
+  "tasks": [
+    {
+      "id": "3f0c2a4e-8b1d-4c7e-9a52-6d1f0e7b9c11",
+      "title": "File quarterly report",
+      "description": "",
+      "status": "pending",
+      "priority": "medium",
+      "tags": [],
+      "created_by": "system",
+      "created_at": "2025-05-20T09:00:00Z",
+      "updated_at": "2025-05-20T09:00:00Z",
+      "due_date": "2025-05-27T12:00:00Z"
+    },
+    {
+      "id": "b7e1d9c2-4a63-4f08-8d35-2c9a1e5f7a40",
+      "title": "Renew certificates",
+      "description": "",
+      "status": "in_progress",
+      "priority": "high",
+      "tags": ["ops"],
+      "created_by": "system",
+      "created_at": "2025-05-22T10:30:00Z",
+      "updated_at": "2025-05-30T08:15:00Z",
+      "due_date": "2025-05-30T12:00:00Z"
+    }
+  ],
+  "next_page_token": "2",
+  "total_count": 3
+}
+```
+
+## Assigning Tasks
+
+`POST /api/v1/tasks/:id/assign` assigns a task to a person identified by email address. It sets `assigned_to` and refreshes `updated_at`.
+
+**Request body**
+```json
+{"assigned_to": "user@example.com"}
+```
+
+**Validation.** `assigned_to` is required. Surrounding whitespace is trimmed, and the value must be a bare email address as parsed by Go's `net/mail` (`mail.ParseAddress`). Display-name forms such as `Name <a@b.com>` are rejected, as are values that are not email addresses. The stored value is the trimmed address. The email is validated before the task is looked up, so an invalid email yields `400` even for an unknown task ID.
+
+**Responses**
+- `200 OK` - the updated task (full task JSON).
+- `400 Bad Request` with `VALIDATION_ERROR` - malformed JSON, missing or empty `assigned_to`, or an invalid email address.
+- `404 Not Found` with `NOT_FOUND` - no task with that ID.
+
+Errors use the standard [error response format](#error-response-format).
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "user@example.com"}'
+```
+
+Example success response (`200`):
+```json
+{
+  "id": "3f0c2a4e-8b1d-4c7e-9a52-6d1f0e7b9c11",
+  "title": "File quarterly report",
+  "description": "",
+  "status": "pending",
+  "priority": "medium",
+  "tags": [],
+  "created_by": "system",
+  "assigned_to": "user@example.com",
+  "created_at": "2025-05-20T09:00:00Z",
+  "updated_at": "2025-06-01T12:00:00Z",
+  "due_date": "2025-05-27T12:00:00Z"
+}
+```
+
+Example validation error (`400`):
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "invalid email: \"Bob <b@x.com>\""
+  }
+}
+```
+
+Example not-found error (`404`):
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "task with ID missing not found"
+  }
+}
+```
+
+**Assignment notification.** After a successful assignment the service calls a `Notifier` (interface in `internal/services/task_service.go`):
+
+```go
+type Notifier interface {
+    NotifyAssignment(task models.Task, assignee string) error
+}
+```
+
+The default implementation, `LogNotifier`, writes a line to the standard logger (`notification: task <id> ("<title>") assigned to <email>`). The notifier is called only on successful assignments, after the internal lock is released. If it returns an error, the error is logged and the request still succeeds with `200`. `TaskService.SetNotifier` swaps the implementation (`nil` disables notifications), and `TaskService.SetClock` swaps the time source (used by tests for deterministic overdue and `updated_at` behavior).
+
+> **Note - to be confirmed with the project owner:** no assignment notification existed in this codebase before the assign endpoint was added. The `Notifier` interface and the logging-only `LogNotifier` were introduced as a minimal way to satisfy the "notify on assignment" requirement. They do not send email or any other external message. Whether this is sufficient, or a real delivery channel (email, webhook, etc.) is required, has not been decided and should be confirmed with the project owner.
 
 ## Task Model
 
@@ -139,6 +284,19 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+## Testing
+
+Run from the `src/` directory:
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+The tests do not need the workstation license. They build the router directly with `server.NewHandler` and `RegisterRoutes` (using `httptest`) instead of going through `cmd/rest-server/main.go`, which is where the license check runs. The license check itself is unchanged; see [Required Configuration](#required-configuration).
+
+Time-dependent behavior (overdue) and notifications are made deterministic in tests with `TaskService.SetClock` and `TaskService.SetNotifier`.
 
 ## Features
 
