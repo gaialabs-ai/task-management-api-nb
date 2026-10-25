@@ -116,6 +116,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 
 	// Establish a deterministic base order (map iteration is random) so that
 	// pagination is stable; the requested sort order is applied stably on top.
+	// Intentional change vs. the original: the default order used to be random map order.
 	sort.Slice(tasks, func(i, j int) bool {
 		if !tasks[i].CreatedAt.Equal(tasks[j].CreatedAt) {
 			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
@@ -139,7 +140,8 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 
 // paginateTasks applies page_size/page_token offset pagination to an already
 // filtered and sorted slice. Page size defaults to 20 and is capped at 100; the
-// token is a decimal offset (invalid tokens are treated as 0). It returns copies
+// token is a decimal offset (invalid or negative tokens are treated as 0; the
+// original code panicked on negative offsets). It returns copies
 // of the tasks on the page (nil when the page is empty) and the next page token
 // ("" when there are no more results).
 func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {

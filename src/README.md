@@ -66,6 +66,7 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+  - Pagination notes: with no `sort_order`, results are ordered by `created_at` ascending (ties by `id`) so `page_token` offsets are stable across requests. Other `sort_order` values keep this order for ties. A negative or non-numeric `page_token` is treated as the start of the list (previously a negative token caused a server error).
 - `GET /api/v1/tasks/search` - Search tasks by title, description, and tags (`q`, `page_size`)
 - `GET /api/v1/tasks/stats` - Task counts by status and priority
 - `GET /api/v1/tasks/overdue` - List overdue tasks (see [Overdue Tasks](#overdue-tasks))
