@@ -28,7 +28,7 @@ func NewCommentService(taskService *TaskService) *CommentService {
 // ListComments returns all comments for a task, sorted by creation time
 func (s *CommentService) ListComments(taskID string) (*models.ListCommentsResponse, error) {
 	if _, err := s.taskService.GetTask(taskID); err != nil {
-		return nil, fmt.Errorf("task with ID %s not found", taskID)
+		return nil, &taskNotFoundError{id: taskID}
 	}
 
 	s.mu.RLock()
@@ -53,7 +53,7 @@ func (s *CommentService) ListComments(taskID string) (*models.ListCommentsRespon
 // AddComment adds a comment to a task
 func (s *CommentService) AddComment(taskID string, req models.CreateCommentRequest) (*models.Comment, error) {
 	if _, err := s.taskService.GetTask(taskID); err != nil {
-		return nil, fmt.Errorf("task with ID %s not found", taskID)
+		return nil, &taskNotFoundError{id: taskID}
 	}
 
 	s.mu.Lock()
@@ -76,7 +76,7 @@ func (s *CommentService) AddComment(taskID string, req models.CreateCommentReque
 // DeleteComment removes a comment from a task
 func (s *CommentService) DeleteComment(taskID, commentID string) error {
 	if _, err := s.taskService.GetTask(taskID); err != nil {
-		return fmt.Errorf("task with ID %s not found", taskID)
+		return &taskNotFoundError{id: taskID}
 	}
 
 	s.mu.Lock()
