@@ -237,10 +237,8 @@ func (s *TaskService) AssignTask(id, email string) (*models.Task, error) {
 	s.mu.Unlock()
 
 	// Notify outside the lock so slow notifiers cannot block the service.
-	if notifier != nil {
-		if nerr := notifier.NotifyAssigned(snapshot, assignee); nerr != nil {
-			log.Printf("failed to notify %s of assignment of task %s: %v", assignee, snapshot.ID, nerr)
-		}
+	if nerr := notifier.NotifyAssigned(snapshot, assignee); nerr != nil {
+		log.Printf("failed to notify %s of assignment of task %s: %v", assignee, snapshot.ID, nerr)
 	}
 
 	return &snapshot, nil
