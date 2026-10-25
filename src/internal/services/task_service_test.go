@@ -1217,3 +1217,34 @@ func TestListTasks_DefaultOrderIsStableAcrossPages(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskLookups_MissingIDReturnsErrTaskNotFound(t *testing.T) {
+	const missing = "missing"
+	wantMsg := "task with ID missing not found"
+
+	calls := map[string]func(svc *TaskService) error{
+		"GetTask": func(svc *TaskService) error { _, err := svc.GetTask(missing); return err },
+		"UpdateTask": func(svc *TaskService) error {
+			_, err := svc.UpdateTask(missing, models.UpdateTaskRequest{})
+			return err
+		},
+		"UpdateTaskStatus": func(svc *TaskService) error {
+			_, err := svc.UpdateTaskStatus(missing, models.TaskStatusCompleted)
+			return err
+		},
+		"AssignTask": func(svc *TaskService) error { _, err := svc.AssignTask(missing, "a@example.com"); return err },
+		"DeleteTask": func(svc *TaskService) error { return svc.DeleteTask(missing) },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := newEmptyService(t, baseNow)
+			err := call(svc)
+			if !errors.Is(err, ErrTaskNotFound) {
+				t.Fatalf("errors.Is(%v, ErrTaskNotFound) = false", err)
+			}
+			if err.Error() != wantMsg {
+				t.Errorf("message = %q, want %q", err.Error(), wantMsg)
+			}
+		})
+	}
+}

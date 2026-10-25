@@ -25,7 +25,7 @@ type TaskService struct {
 }
 
 var (
-	// ErrTaskNotFound is matched (errors.Is) by the "task not found" error returned from AssignTask.
+	// ErrTaskNotFound is matched (errors.Is) by the "task not found" error returned from GetTask, UpdateTask, UpdateTaskStatus, AssignTask and DeleteTask.
 	ErrTaskNotFound = errors.New("task not found")
 	// ErrInvalidEmail is matched (errors.Is) by invalid assignee errors.
 	ErrInvalidEmail = errors.New("invalid email")
@@ -284,7 +284,7 @@ func (s *TaskService) GetTask(id string) (*models.Task, error) {
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, &taskNotFoundError{id: id}
 	}
 
 	return task, nil
@@ -336,7 +336,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, &taskNotFoundError{id: id}
 	}
 
 	// Update fields if provided
@@ -480,7 +480,7 @@ func (s *TaskService) DeleteTask(id string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.tasks[id]; !exists {
-		return fmt.Errorf("task with ID %s not found", id)
+		return &taskNotFoundError{id: id}
 	}
 
 	delete(s.tasks, id)
