@@ -1177,3 +1177,43 @@ func TestConcurrentAssignListCreate(t *testing.T) {
 		}
 	}
 }
+
+func TestListTasks_DefaultOrderIsStableAcrossPages(t *testing.T) {
+	svc, _ := newEmptyService(t, baseNow)
+	for i := 0; i < 25; i++ {
+		// Equal CreatedAt for groups of tasks forces the ID tie-break.
+		createAt(t, svc, baseNow.Add(time.Duration(i/5)*time.Minute), models.CreateTaskRequest{Title: strconv.Itoa(i)})
+	}
+
+	var first []string
+	for run := 0; run < 5; run++ {
+		var got []string
+		token := ""
+		for {
+			resp, err := svc.ListTasks(models.ListTasksQuery{PageSize: 7, PageToken: token})
+			if err != nil {
+				t.Fatalf("ListTasks: %v", err)
+			}
+			got = append(got, ids(resp.Tasks)...)
+			if resp.NextPageToken == "" {
+				break
+			}
+			token = resp.NextPageToken
+		}
+		if len(got) != 25 {
+			t.Fatalf("run %d: visited %d tasks, want 25", run, len(got))
+		}
+		seen := map[string]bool{}
+		for _, id := range got {
+			if seen[id] {
+				t.Fatalf("run %d: task %s returned twice", run, id)
+			}
+			seen[id] = true
+		}
+		if run == 0 {
+			first = got
+		} else if !reflect.DeepEqual(first, got) {
+			t.Fatalf("run %d order differs from first run", run)
+		}
+	}
+}
