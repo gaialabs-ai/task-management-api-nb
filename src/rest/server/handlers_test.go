@@ -67,6 +67,9 @@ func walkPages(t *testing.T, engine *gin.Engine, basePath string, query url.Valu
 
 func TestListTasksPaginationRegression(t *testing.T) {
 	svc := services.NewTaskService()
+	fixed := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return fixed })
+	svc.SetNotifier(&recNotifier{})
 	engine := newTestEngine(svc)
 
 	// NewTaskService seeds 2 sample tasks; add more so total exceeds page sizes.
