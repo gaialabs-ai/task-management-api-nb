@@ -33,7 +33,7 @@ var (
 
 type taskNotFoundError struct{ id string }
 
-func (e *taskNotFoundError) Error() string { return fmt.Sprintf("task with ID %s not found", e.id) }
+func (e *taskNotFoundError) Error() string        { return fmt.Sprintf("task with ID %s not found", e.id) }
 func (e *taskNotFoundError) Is(target error) bool { return target == ErrTaskNotFound }
 
 // Notifier is told about task assignments.
@@ -340,7 +340,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 			return nil, fmt.Errorf("invalid status: %s", *req.Status)
 		}
 		task.Status = *req.Status
-		
+
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := s.now()

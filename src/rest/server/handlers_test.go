@@ -1,16 +1,16 @@
 package server
 
 import (
-	"errors"
-	"sync"
-	"time"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
@@ -200,9 +200,8 @@ func TestOverdueTasks(t *testing.T) {
 		t.Fatalf("order %v want %v", ids, want)
 	}
 
-	if w := doRequest(engine, http.MethodGet, "/api/v1/tasks/overdue?page_size=0", ""); w.Code != 200 {
-		// page_size=0 fails min=1 binding like listTasks
-		_ = w
+	if w := doRequest(engine, http.MethodGet, "/api/v1/tasks/overdue?page_size=0", ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("page_size=0: %d", w.Code)
 	}
 	if w := doRequest(engine, http.MethodGet, "/api/v1/tasks/overdue?page_size=500", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("page_size=500: %d", w.Code)

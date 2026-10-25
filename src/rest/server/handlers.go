@@ -77,10 +77,10 @@ func (h *Handler) healthCheck(c *gin.Context) {
 		"service":   "task-api-go",
 		"version":   "1.1.0",
 		"process": gin.H{
-			"owner":    processOwner,
-			"hostname": hostname,
-			"pid":      pid,
-			"uptime":   uptime,
+			"owner":      processOwner,
+			"hostname":   hostname,
+			"pid":        pid,
+			"uptime":     uptime,
 			"go_version": runtime.Version(),
 		},
 	})
@@ -260,7 +260,7 @@ func (h *Handler) updateTask(c *gin.Context) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
-		
+
 		// Check if it's a not found error
 		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
 			status = http.StatusNotFound
@@ -311,7 +311,7 @@ func (h *Handler) updateTaskStatus(c *gin.Context) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
-		
+
 		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
