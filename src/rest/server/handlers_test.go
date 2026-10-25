@@ -37,6 +37,34 @@ func doRequest(engine *gin.Engine, method, path, body string) *httptest.Response
 	return w
 }
 
+// walkPages follows next_page_token from the first page of GET basePath?query until
+// the token is empty and returns every page in order. It fails the test on a
+// non-200 status, bad JSON, or more than maxPages pages (runaway token loop).
+func walkPages(t *testing.T, engine *gin.Engine, basePath string, query url.Values) []models.ListTasksResponse {
+	t.Helper()
+	const maxPages = 10
+	var pages []models.ListTasksResponse
+	q := url.Values{}
+	for k, v := range query {
+		q[k] = append([]string(nil), v...)
+	}
+	for {
+		w := doRequest(engine, http.MethodGet, basePath+"?"+q.Encode(), "")
+		var resp models.ListTasksResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil || w.Code != http.StatusOK {
+			t.Fatalf("%s: status %d body %s (err %v)", basePath, w.Code, w.Body.String(), err)
+		}
+		pages = append(pages, resp)
+		if resp.NextPageToken == "" {
+			return pages
+		}
+		if len(pages) >= maxPages {
+			t.Fatal("too many pages")
+		}
+		q.Set("page_token", resp.NextPageToken)
+	}
+}
+
 func TestListTasksPaginationRegression(t *testing.T) {
 	svc := services.NewTaskService()
 	engine := newTestEngine(svc)
@@ -63,25 +91,18 @@ func TestListTasksPaginationRegression(t *testing.T) {
 		}
 	}
 
+	pages := walkPages(t, engine, "/api/v1/tasks", url.Values{"page_size": {"5"}, "sort_order": {"created_at_asc"}})
 	seen := map[string]bool{}
-	token := ""
-	pages := 0
-	for {
-		q := url.Values{"page_size": {"5"}, "sort_order": {"created_at_asc"}}
-		if token != "" {
-			q.Set("page_token", token)
-		}
-		w := doRequest(engine, http.MethodGet, "/api/v1/tasks?"+q.Encode(), "")
-		if w.Code != http.StatusOK {
-			t.Fatalf("status %d: %s", w.Code, w.Body.String())
-		}
-		var resp models.ListTasksResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-			t.Fatal(err)
-		}
-		pages++
+	for i, resp := range pages {
 		if resp.TotalCount != total {
 			t.Fatalf("total_count = %d, want %d", resp.TotalCount, total)
+		}
+		last := i == len(pages)-1
+		if last && len(resp.Tasks) != total-5*i {
+			t.Fatalf("last page len = %d", len(resp.Tasks))
+		}
+		if !last && len(resp.Tasks) != 5 {
+			t.Fatalf("page %d len = %d, want 5", i+1, len(resp.Tasks))
 		}
 		for _, task := range resp.Tasks {
 			if seen[task.ID] {
@@ -89,22 +110,9 @@ func TestListTasksPaginationRegression(t *testing.T) {
 			}
 			seen[task.ID] = true
 		}
-		if resp.NextPageToken == "" {
-			if len(resp.Tasks) != total-5*(pages-1) {
-				t.Fatalf("last page len = %d", len(resp.Tasks))
-			}
-			break
-		}
-		if len(resp.Tasks) != 5 {
-			t.Fatalf("page %d len = %d, want 5", pages, len(resp.Tasks))
-		}
-		token = resp.NextPageToken
-		if pages > 10 {
-			t.Fatal("too many pages")
-		}
 	}
-	if pages != 3 || len(seen) != total {
-		t.Fatalf("pages=%d seen=%d total=%d", pages, len(seen), total)
+	if len(pages) != 3 || len(seen) != total {
+		t.Fatalf("pages=%d seen=%d total=%d", len(pages), len(seen), total)
 	}
 
 	// Out-of-range token yields an empty page, same total, no next token.
@@ -174,25 +182,12 @@ func TestOverdueTasks(t *testing.T) {
 	}
 
 	var ids []string
-	token := ""
-	for {
-		path := "/api/v1/tasks/overdue?page_size=2"
-		if token != "" {
-			path += "&page_token=" + token
-		}
-		w := doRequest(engine, http.MethodGet, path, "")
-		var resp models.ListTasksResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil || w.Code != 200 {
-			t.Fatalf("%d %s", w.Code, w.Body.String())
-		}
+	for _, resp := range walkPages(t, engine, "/api/v1/tasks/overdue", url.Values{"page_size": {"2"}}) {
 		if resp.TotalCount != 3 {
 			t.Fatalf("total_count %d", resp.TotalCount)
 		}
 		for _, x := range resp.Tasks {
 			ids = append(ids, x.ID)
-		}
-		if token = resp.NextPageToken; token == "" {
-			break
 		}
 	}
 	want := []string{late5.ID, late2.ID, late1.ID}
