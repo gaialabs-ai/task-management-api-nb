@@ -1,7 +1,7 @@
 """Regression for pre-existing endpoints: health, CRUD, status, search, stats, comments."""
 import requests
 
-from helpers import API, BASE_URL, TIMEOUT, assert_error, create_task, new_run_id, set_status
+from helpers import API, BASE_URL, TIMEOUT, assert_error, create_task, new_run_id, patch_status, set_status
 
 
 class TestHealth:
@@ -48,9 +48,9 @@ class TestTaskCrud:
 
     def test_patch_status_invalid_and_not_found(self):
         t = create_task(new_run_id() + " badstatus")
-        r = requests.patch(API + "/tasks/%s/status" % t["id"], json={"status": "nope"}, timeout=TIMEOUT)
+        r = patch_status(t["id"], "nope")
         assert_error(r, 400, "VALIDATION_ERROR")
-        r = requests.patch(API + "/tasks/nonexistent/status", json={"status": "pending"}, timeout=TIMEOUT)
+        r = patch_status("nonexistent", "pending")
         assert_error(r, 404, "NOT_FOUND")
 
     def test_update_not_found(self):

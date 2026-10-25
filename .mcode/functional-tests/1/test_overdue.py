@@ -2,7 +2,7 @@
 import pytest
 import requests
 
-from helpers import (API, TIMEOUT, assert_error, create_task, days_ago, days_ahead, get_task,
+from helpers import (API, TIMEOUT, assert_error, assign_task, create_task, days_ago, days_ahead, get_task,
                      new_run_id, set_status, walk_pages)
 
 
@@ -92,8 +92,7 @@ class TestOverdueListing:
     def test_assigned_overdue_task_reports_assignee(self):
         run = new_run_id()
         task = create_task("%s assigned_overdue" % run, due_date="2001-02-03T04:05:06Z", tags=[run])
-        r = requests.post(API + "/tasks/%s/assign" % task["id"], json={"assigned_to": "o@example.com"},
-                          timeout=TIMEOUT)
+        r = assign_task(task["id"], {"assigned_to": "o@example.com"})
         assert r.status_code == 200
         tasks, _, _ = walk_pages("/tasks/overdue", 100)
         match = [x for x in tasks if x["id"] == task["id"]]

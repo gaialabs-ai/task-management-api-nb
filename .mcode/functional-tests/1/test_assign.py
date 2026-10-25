@@ -1,29 +1,11 @@
 """POST /api/v1/tasks/:id/assign - success, validation, not found."""
 import time
-from datetime import datetime
 
 import pytest
 import requests
 
 from helpers import API, TIMEOUT, assert_error, create_task, get_task, new_run_id
-
-
-def parse(ts):
-    # Go RFC3339Nano: trim fractional seconds to microseconds for fromisoformat
-    ts = ts.replace("Z", "+00:00")
-    if "." in ts:
-        head, rest = ts.split(".", 1)
-        frac = ""
-        i = 0
-        while i < len(rest) and rest[i].isdigit():
-            frac += rest[i]
-            i += 1
-        ts = head + "." + frac[:6].ljust(6, "0") + rest[i:]
-    return datetime.fromisoformat(ts)
-
-
-def assign(task_id, payload):
-    return requests.post(API + "/tasks/%s/assign" % task_id, json=payload, timeout=TIMEOUT)
+from helpers import assign_task as assign, parse_ts as parse
 
 
 @pytest.fixture

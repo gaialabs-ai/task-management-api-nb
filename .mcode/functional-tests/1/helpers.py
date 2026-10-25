@@ -34,8 +34,30 @@ def create_task(title, **extra):
     return resp.json()
 
 
+def patch_status(task_id, status):
+    return requests.patch(API + "/tasks/%s/status" % task_id, json={"status": status}, timeout=TIMEOUT)
+
+
+def assign_task(task_id, payload):
+    return requests.post(API + "/tasks/%s/assign" % task_id, json=payload, timeout=TIMEOUT)
+
+
+def parse_ts(ts):
+    # Go RFC3339Nano: trim fractional seconds to microseconds for fromisoformat
+    ts = ts.replace("Z", "+00:00")
+    if "." in ts:
+        head, rest = ts.split(".", 1)
+        frac = ""
+        i = 0
+        while i < len(rest) and rest[i].isdigit():
+            frac += rest[i]
+            i += 1
+        ts = head + "." + frac[:6].ljust(6, "0") + rest[i:]
+    return datetime.fromisoformat(ts)
+
+
 def set_status(task_id, status):
-    resp = requests.patch(API + "/tasks/%s/status" % task_id, json={"status": status}, timeout=TIMEOUT)
+    resp = patch_status(task_id, status)
     assert resp.status_code == 200, "status update failed: %s %s" % (resp.status_code, resp.text)
     return resp.json()
 

@@ -2,7 +2,7 @@
 import pytest
 import requests
 
-from helpers import API, TIMEOUT, assert_error, create_task, days_ago, new_run_id, set_status, walk_pages
+from helpers import API, BASE_URL, TIMEOUT, assert_error, create_task, days_ago, new_run_id, set_status, walk_pages
 
 
 @pytest.fixture(scope="module")
@@ -84,7 +84,7 @@ class TestListPagination:
         resp = requests.get(API + "/tasks", params={"tags": bulk["run"], "page_token": "-3"}, timeout=TIMEOUT)
         assert resp.status_code == 200
         # server must still be healthy afterwards
-        assert requests.get(API.replace("/api/v1", "") + "/health", timeout=TIMEOUT).status_code == 200
+        assert requests.get(BASE_URL + "/health", timeout=TIMEOUT).status_code == 200
 
 
 class TestListFilters:
