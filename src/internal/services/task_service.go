@@ -23,6 +23,9 @@ type TaskService struct {
 	notifier Notifier
 }
 
+// DefaultPageSize is the page size used when a list request does not specify one.
+const DefaultPageSize = 20
+
 // ErrInvalidEmail is returned when an assignee is not a valid bare email address.
 var ErrInvalidEmail = errors.New("invalid email address")
 
@@ -133,13 +136,13 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 }
 
 // paginateTasks applies page size / page token pagination to an already
-// filtered and sorted task slice. The default page size is 20, the maximum
+// filtered and sorted task slice. The default page size is DefaultPageSize, the maximum
 // is 100, the page token is the numeric start offset and the next token is
 // the end index of the returned page (empty when no more results remain).
 func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {
 	totalCount := len(tasks)
 	if pageSize <= 0 {
-		pageSize = 20
+		pageSize = DefaultPageSize
 	}
 	if pageSize > 100 {
 		pageSize = 100
