@@ -25,7 +25,7 @@ type TaskService struct {
 }
 
 var (
-	// ErrTaskNotFound is matched (errors.Is) by all "task not found" errors.
+	// ErrTaskNotFound is matched (errors.Is) by the "task not found" error returned from AssignTask.
 	ErrTaskNotFound = errors.New("task not found")
 	// ErrInvalidEmail is matched (errors.Is) by invalid assignee errors.
 	ErrInvalidEmail = errors.New("invalid email")
