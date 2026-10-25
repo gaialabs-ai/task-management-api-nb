@@ -147,6 +147,9 @@ func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]mode
 
 	startIndex := 0
 	if pageToken != "" {
+		// Negative offsets are treated as the first page. The pre-extraction inline code
+		// accepted them and panicked on the slice bounds; this is the only intentional
+		// behavior difference from the original GET /api/v1/tasks pagination.
 		if idx, err := strconv.Atoi(pageToken); err == nil && idx > 0 {
 			startIndex = idx
 		}

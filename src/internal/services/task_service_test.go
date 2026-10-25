@@ -191,6 +191,8 @@ func TestListOverdueTasksPagination(t *testing.T) {
 		{"default page size", models.ListTasksQuery{}, []string{"t0", "t1", "t2", "t3", "t4"}, ""},
 		{"token beyond end", models.ListTasksQuery{PageSize: 2, PageToken: "99"}, []string{}, ""},
 		{"invalid token ignored", models.ListTasksQuery{PageSize: 2, PageToken: "abc"}, []string{"t0", "t1"}, "2"},
+		{"negative token ignored", models.ListTasksQuery{PageSize: 2, PageToken: "-1"}, []string{"t0", "t1"}, "2"},
+		{"zero token", models.ListTasksQuery{PageSize: 2, PageToken: "0"}, []string{"t0", "t1"}, "2"},
 		{"page size capped at 100", models.ListTasksQuery{PageSize: 1000}, []string{"t0", "t1", "t2", "t3", "t4"}, ""},
 	}
 	for _, tc := range tests {
@@ -229,6 +231,8 @@ func TestListTasksPaginationRegression(t *testing.T) {
 		{"page 3", models.ListTasksQuery{PageSize: 2, PageToken: "4"}, 1, ""},
 		{"all", models.ListTasksQuery{}, 5, ""},
 		{"beyond end", models.ListTasksQuery{PageSize: 2, PageToken: "10"}, 0, ""},
+		{"negative token treated as first page", models.ListTasksQuery{PageSize: 2, PageToken: "-1"}, 2, "2"},
+		{"zero token", models.ListTasksQuery{PageSize: 2, PageToken: "0"}, 2, "2"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
