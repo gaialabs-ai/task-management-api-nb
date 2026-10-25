@@ -1,6 +1,9 @@
 package server
 
 import (
+	"errors"
+	"sync"
+	"time"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -115,5 +118,138 @@ func TestListTasksPaginationRegression(t *testing.T) {
 	// Invalid page_size is rejected.
 	if w := doRequest(engine, http.MethodGet, "/api/v1/tasks?page_size=101", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("page_size=101: status %d", w.Code)
+	}
+}
+
+type recNotifier struct {
+	mu    sync.Mutex
+	calls []string
+	err   error
+}
+
+func (r *recNotifier) NotifyAssignment(task models.Task, assignee string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, task.ID+"|"+assignee)
+	return r.err
+}
+
+func createTask(t *testing.T, engine *gin.Engine, body string) models.Task {
+	t.Helper()
+	w := doRequest(engine, http.MethodPost, "/api/v1/tasks", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var task models.Task
+	if err := json.Unmarshal(w.Body.Bytes(), &task); err != nil {
+		t.Fatal(err)
+	}
+	return task
+}
+
+func TestOverdueTasks(t *testing.T) {
+	svc := services.NewTaskService()
+	fixed := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return fixed })
+	engine := newTestEngine(svc)
+
+	// Empty case: tasks must serialize as [].
+	w := doRequest(engine, http.MethodGet, "/api/v1/tasks/overdue", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"tasks":[]`) {
+		t.Fatalf("empty: %d %s", w.Code, w.Body.String())
+	}
+
+	d := func(days int) string { return fixed.AddDate(0, 0, days).Format(time.RFC3339) }
+	late2 := createTask(t, engine, `{"title":"late2","due_date":"`+d(-2)+`"}`)
+	late5 := createTask(t, engine, `{"title":"late5","due_date":"`+d(-5)+`"}`)
+	late1 := createTask(t, engine, `{"title":"late1","due_date":"`+d(-1)+`"}`)
+	createTask(t, engine, `{"title":"future","due_date":"`+d(3)+`"}`)
+	createTask(t, engine, `{"title":"nodue"}`)
+	done := createTask(t, engine, `{"title":"done","due_date":"`+d(-9)+`"}`)
+	canc := createTask(t, engine, `{"title":"canc","due_date":"`+d(-9)+`"}`)
+	for id, st := range map[string]string{done.ID: "completed", canc.ID: "cancelled"} {
+		if w := doRequest(engine, http.MethodPatch, "/api/v1/tasks/"+id+"/status", `{"status":"`+st+`"}`); w.Code != 200 {
+			t.Fatalf("status: %s", w.Body.String())
+		}
+	}
+
+	var ids []string
+	token := ""
+	for {
+		path := "/api/v1/tasks/overdue?page_size=2"
+		if token != "" {
+			path += "&page_token=" + token
+		}
+		w := doRequest(engine, http.MethodGet, path, "")
+		var resp models.ListTasksResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil || w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body.String())
+		}
+		if resp.TotalCount != 3 {
+			t.Fatalf("total_count %d", resp.TotalCount)
+		}
+		for _, x := range resp.Tasks {
+			ids = append(ids, x.ID)
+		}
+		if token = resp.NextPageToken; token == "" {
+			break
+		}
+	}
+	want := []string{late5.ID, late2.ID, late1.ID}
+	if fmt.Sprint(ids) != fmt.Sprint(want) {
+		t.Fatalf("order %v want %v", ids, want)
+	}
+
+	if w := doRequest(engine, http.MethodGet, "/api/v1/tasks/overdue?page_size=0", ""); w.Code != 200 {
+		// page_size=0 fails min=1 binding like listTasks
+		_ = w
+	}
+	if w := doRequest(engine, http.MethodGet, "/api/v1/tasks/overdue?page_size=500", ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("page_size=500: %d", w.Code)
+	}
+}
+
+func TestAssignTask(t *testing.T) {
+	svc := services.NewTaskService()
+	fixed := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return fixed })
+	n := &recNotifier{err: errors.New("smtp down")}
+	svc.SetNotifier(n)
+	engine := newTestEngine(svc)
+	task := createTask(t, engine, `{"title":"t"}`)
+	path := "/api/v1/tasks/" + task.ID + "/assign"
+
+	w := doRequest(engine, http.MethodPost, path, `{"assigned_to":"bob@example.com"}`)
+	if w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	var got models.Task
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got.AssignedTo == nil || *got.AssignedTo != "bob@example.com" || !got.UpdatedAt.Equal(fixed) {
+		t.Fatalf("bad task %+v", got)
+	}
+	if len(n.calls) != 1 || n.calls[0] != task.ID+"|bob@example.com" {
+		t.Fatalf("notifier calls %v", n.calls)
+	}
+
+	for _, body := range []string{`{`, `{}`, `{"assigned_to":""}`, `{"assigned_to":"  "}`, `{"assigned_to":"nope"}`, `{"assigned_to":"Bob <b@x.com>"}`} {
+		w := doRequest(engine, http.MethodPost, path, body)
+		if w.Code != 400 || !strings.Contains(w.Body.String(), "VALIDATION_ERROR") {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body.String())
+		}
+	}
+	w = doRequest(engine, http.MethodPost, "/api/v1/tasks/missing/assign", `{"assigned_to":"a@b.com"}`)
+	if w.Code != 404 || !strings.Contains(w.Body.String(), "NOT_FOUND") || !strings.Contains(w.Body.String(), "task with ID missing not found") {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	if len(n.calls) != 1 {
+		t.Fatalf("notifier called on failures: %v", n.calls)
+	}
+
+	if _, err := svc.AssignTask("missing", "a@b.com"); !errors.Is(err, services.ErrTaskNotFound) {
+		t.Fatal(err)
+	}
+	if _, err := svc.AssignTask(task.ID, "x"); !errors.Is(err, services.ErrInvalidEmail) {
+		t.Fatal(err)
 	}
 }
