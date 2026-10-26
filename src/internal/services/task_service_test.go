@@ -61,6 +61,7 @@ func TestListTasksPagination(t *testing.T) {
 		{"token at end yields empty page", 5, 10, "5", 0, "", "", 5},
 		{"token past end yields empty page", 5, 10, "50", 0, "", "", 5},
 		{"non-numeric token starts at beginning", 5, 2, "abc", 2, "t000", "2", 5},
+		{"negative token starts at beginning", 5, 2, "-1", 2, "t000", "2", 5},
 		{"empty collection", 0, 10, "", 0, "", "", 0},
 	}
 	for _, tt := range tests {
