@@ -108,3 +108,11 @@ func TestListTasksPagination_TotalCountReflectsFilter(t *testing.T) {
 		t.Fatalf("total=%d len=%d", resp.TotalCount, len(resp.Tasks))
 	}
 }
+func TestListTasksPagination_NegativeTokenDoesNotPanic(t *testing.T) {
+	s := newEmptyService()
+	seedN(s, 3)
+	resp, err := s.ListTasks(models.ListTasksQuery{PageSize: 2, PageToken: "-1", SortOrder: models.SortOrderCreatedAtAsc})
+	if err != nil || resp.TotalCount != 3 {
+		t.Fatalf("resp=%+v err=%v", resp, err)
+	}
+}
