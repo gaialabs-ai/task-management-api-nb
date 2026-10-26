@@ -1,0 +1,12 @@
+bin/
+*.exe
+*.test
+*.out
+vendor/
+.env
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
