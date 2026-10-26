@@ -1263,3 +1263,78 @@ func TestListTasks_ReturnsDeepCopies(t *testing.T) {
 		t.Fatalf("stored tag = %q after mutating returned task, want %q", got, "a")
 	}
 }
+
+func TestListTasks_SortOrdersKeepBaseOrderOnTies(t *testing.T) {
+	c0 := baseNow
+	c1 := baseNow.Add(time.Minute)
+	c2 := baseNow.Add(2 * time.Minute)
+	d1 := baseNow.Add(24 * time.Hour)
+	d2 := baseNow.Add(48 * time.Hour)
+
+	specs := map[string]struct {
+		created  time.Time
+		priority models.TaskPriority
+		due      *time.Time
+	}{
+		"t1": {c0, models.TaskPriorityHigh, timePtr(d2)},
+		"t2": {c0, models.TaskPriorityLow, nil},
+		"t3": {c1, models.TaskPriorityHigh, timePtr(d1)},
+		"t4": {c1, models.TaskPriorityLow, nil},
+		"t5": {c2, models.TaskPriorityMedium, timePtr(d2)},
+	}
+	creationOrder := []string{"t5", "t3", "t2", "t4", "t1"}
+
+	cases := []struct {
+		name string
+		sort models.SortOrder
+		want []string
+	}{
+		{"default", "", []string{"t1", "t2", "t3", "t4", "t5"}},
+		{"created_at_asc", models.SortOrderCreatedAtAsc, []string{"t1", "t2", "t3", "t4", "t5"}},
+		{"created_at_desc", models.SortOrderCreatedAtDesc, []string{"t5", "t3", "t4", "t1", "t2"}},
+		{"due_date_asc", models.SortOrderDueDateAsc, []string{"t3", "t1", "t5", "t2", "t4"}},
+		{"due_date_desc", models.SortOrderDueDateDesc, []string{"t1", "t5", "t3", "t2", "t4"}},
+		{"priority_asc", models.SortOrderPriorityAsc, []string{"t2", "t4", "t5", "t1", "t3"}},
+		{"priority_desc", models.SortOrderPriorityDesc, []string{"t1", "t3", "t5", "t2", "t4"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _ := newEmptyService(t, baseNow)
+			for _, id := range creationOrder {
+				sp := specs[id]
+				task := createAt(t, svc, sp.created, models.CreateTaskRequest{Title: id, Priority: sp.priority, DueDate: sp.due})
+				setID(svc, task, id)
+			}
+
+			for run := 0; run < 5; run++ {
+				resp, err := svc.ListTasks(models.ListTasksQuery{SortOrder: tc.sort})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := ids(resp.Tasks); !reflect.DeepEqual(got, tc.want) {
+					t.Fatalf("run %d: order = %v, want %v", run, got, tc.want)
+				}
+			}
+
+			var paged []string
+			token := ""
+			for pages := 0; ; pages++ {
+				if pages > len(tc.want) {
+					t.Fatal("pagination did not terminate")
+				}
+				resp, err := svc.ListTasks(models.ListTasksQuery{SortOrder: tc.sort, PageSize: 2, PageToken: token})
+				if err != nil {
+					t.Fatal(err)
+				}
+				paged = append(paged, ids(resp.Tasks)...)
+				if token = resp.NextPageToken; token == "" {
+					break
+				}
+			}
+			if !reflect.DeepEqual(paged, tc.want) {
+				t.Fatalf("paged order = %v, want %v", paged, tc.want)
+			}
+		})
+	}
+}
