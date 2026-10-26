@@ -932,6 +932,37 @@ func TestAssignTask_SetNotifierReplacesNotifier(t *testing.T) {
 	}
 }
 
+func TestLogNotifier_NotifyAssignment(t *testing.T) {
+	t.Run("direct call logs and returns nil", func(t *testing.T) {
+		buf := captureLog(t)
+		task := models.Task{ID: "t-1", Title: "write docs"}
+		if err := (LogNotifier{}).NotifyAssignment(task, "user@example.com"); err != nil {
+			t.Fatalf("NotifyAssignment: %v", err)
+		}
+		want := `notification: task t-1 ("write docs") assigned to user@example.com`
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("log output = %q, want it to contain %q", buf.String(), want)
+		}
+	})
+
+	t.Run("default notifier installed by NewTaskService is used by AssignTask", func(t *testing.T) {
+		svc := NewTaskService()
+		svc.SetClock(fixedClock(baseNow))
+		created, err := svc.CreateTask(models.CreateTaskRequest{Title: "work"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := captureLog(t)
+		if _, err := svc.AssignTask(created.ID, "user@example.com"); err != nil {
+			t.Fatalf("AssignTask: %v", err)
+		}
+		want := fmt.Sprintf("notification: task %s (%q) assigned to user@example.com", created.ID, "work")
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("log output = %q, want it to contain %q", buf.String(), want)
+		}
+	})
+}
+
 func TestAssignTask_NotifierCalledOutsideLock(t *testing.T) {
 	svc, notifier := newEmptyService(t, baseNow)
 	created := createAt(t, svc, baseNow.Add(-2*time.Hour), models.CreateTaskRequest{
