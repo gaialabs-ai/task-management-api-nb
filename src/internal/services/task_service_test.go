@@ -11,8 +11,8 @@ import (
 var baseTime = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 
 // newEmptyService returns a service with the sample data removed.
-func newEmptyService() *TaskService {
-	s := NewTaskService()
+func newEmptyService(opts ...Option) *TaskService {
+	s := NewTaskService(opts...)
 	s.tasks = make(map[string]*models.Task)
 	return s
 }
