@@ -1,0 +1,13 @@
+# Python
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Go build output
+bin/
+out/
+*.test
+*.out

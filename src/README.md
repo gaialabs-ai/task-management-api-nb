@@ -13,7 +13,9 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
-│       └── task_service.go
+│       ├── task_service.go
+│       ├── pagination.go  # shared pagination helper
+│       └── notifier.go    # Notifier interface + logging default
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
 │       └── handlers.go
@@ -39,6 +41,14 @@ The server requires the admin secret in the `TASK_API_ADMIN_SECRET` environment 
 ```bash
 export TASK_API_ADMIN_SECRET=<secret from the platform team>
 ```
+
+## Testing
+
+```bash
+go test -race ./...
+```
+
+Tests build the services and router directly and do not need `TASK_API_ADMIN_SECRET`.
 
 ## Running the Server
 
@@ -67,11 +77,24 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks: `due_date` is before now and status is not `completed` or `cancelled`; tasks without a due date are excluded. Sorted by `due_date` ascending (ties by creation time, then ID). Same pagination and response shape as the list endpoint.
+  - Query params: `page_size` (1-100, default 20), `page_token` (numeric offset); `400 VALIDATION_ERROR` on an invalid `page_size`
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user and notify them
+  - Body: `{"assigned_to": "user@example.com"}` (bare email address, no display name)
+  - Returns the updated task (`200`), `400 VALIDATION_ERROR` for a missing body or invalid email, `404 NOT_FOUND` for an unknown task
 - `DELETE /api/v1/tasks/:id` - Delete a task
+
+### Assignment notifications (assumption, please confirm)
+
+Assigning a task calls a `services.Notifier` (`NotifyAssignment(task models.Task, assignedTo string) error`). **Assumption to confirm:** the requirements only say "notify", so this milestone introduces a small `Notifier` interface whose default implementation (`LogNotifier`) just writes a log line. Real email or webhook delivery is not implemented; it would be a new `Notifier` passed with `services.WithNotifier(...)`. If this assumption is wrong, only the interface and its default implementation need to change.
+
+**Notifier failures do not fail the request.** The assignment is committed first and the notifier is called after the lock is released; if it returns an error the error is logged and the endpoint still returns `200` with the updated task. This is a deliberate choice (the open question was left unspecified); it also means a failed notification is not retried.
+
+`NewTaskService(opts ...Option)` accepts `WithClock(func() time.Time)` (used for the overdue check and timestamps) and `WithNotifier(Notifier)`; with no options the behaviour is unchanged.
 
 ## Task Model
 
@@ -137,6 +160,18 @@ curl http://localhost:8080/api/v1/tasks?page_size=10&sort_order=priority_desc
 curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
   -H "Content-Type: application/json" \
   -d '{"status": "in_progress"}'
+```
+
+### Overdue Tasks
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+### Assign a Task
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
 ```
 
 ### Delete a Task
