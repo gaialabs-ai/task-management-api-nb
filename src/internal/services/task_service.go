@@ -165,7 +165,7 @@ func (s *TaskService) AssignTask(id, assignee string) (*models.Task, error) {
 	task.UpdatedAt = time.Now()
 
 	snapshot := *task
-	snapshot.Tags = append([]string(nil), task.Tags...)
+	snapshot.Tags = append(make([]string, 0, len(task.Tags)), task.Tags...)
 	return &snapshot, nil
 }
 
