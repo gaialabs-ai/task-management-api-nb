@@ -1,0 +1,17 @@
+# Build output
+bin/
+*.exe
+*.test
+*.out
+coverage.out
+
+# Python tooling
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Secrets / local config
+.env

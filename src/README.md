@@ -13,10 +13,15 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
-│       └── task_service.go
+│       ├── task_service.go
+│       ├── task_service_test.go
+│       ├── pagination.go  # Shared pagination helper
+│       ├── notifier.go    # Notifier interface + logging default
+│       └── errors.go      # Not-found / validation error types
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
-│       └── handlers.go
+│       ├── handlers.go
+│       └── handlers_test.go
 ├── go.mod                  # Go module definition
 └── README.md
 ```
@@ -68,10 +73,63 @@ PORT=3000 go run cmd/rest-server/main.go
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
 - `GET /api/v1/tasks/:id` - Get a specific task
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email (see below)
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+
+### Overdue Tasks
+
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is before the current time and whose status is neither `completed` nor `cancelled`. Tasks without a due date are never overdue. Results are ordered by `due_date` ascending, ties broken by task ID.
+
+Query params:
+- `page_size` - 1 to 100 (default `20`); other values return `400 VALIDATION_ERROR`
+- `page_token` - opaque token from a previous response's `next_page_token` (an invalid token starts from the first page)
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10&page_token=10"
+```
+
+Response `200 OK` (same shape as the list endpoint; `next_page_token` is omitted on the last page):
+```json
+{
+  "tasks": [ { "id": "uuid", "title": "Late task", "status": "pending", "due_date": "2024-01-01T00:00:00Z" } ],
+  "next_page_token": "10",
+  "total_count": 42
+}
+```
+
+Errors: `400 VALIDATION_ERROR` for an invalid `page_size`.
+
+### Assign a Task
+
+`POST /api/v1/tasks/:id/assign` sets the task's `assigned_to` and `updated_at` and notifies the assignee.
+
+Body: `{"assigned_to": "<email>"}` (required). The value must be a plain email address (no display name, e.g. `bob@example.com`).
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "bob@example.com"}'
+```
+
+Responses:
+- `200 OK` - the updated task
+- `400 VALIDATION_ERROR` - malformed body, missing `assigned_to`, or invalid email
+- `404 NOT_FOUND` - unknown task ID
+
+**Notifications:** assignment calls a `Notifier` (`internal/services/notifier.go`). The default implementation only writes a log line; no email is sent. Replace it with `services.NewTaskService(services.WithNotifier(...))`. Notifier errors are logged and never roll back the assignment. The service clock is injectable via `services.WithClock(...)` (used by tests).
+
+## Testing
+
+```bash
+go test ./...
+```
+
+Tests build the service and router directly and do not need `TASK_API_ADMIN_SECRET`.
 
 ## Task Model
 
