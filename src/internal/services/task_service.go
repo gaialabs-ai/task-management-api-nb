@@ -470,17 +470,26 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 
 // sortTasks sorts tasks based on the specified order
 func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
+	// Base order (CreatedAt, then ID) makes results deterministic, since tasks
+	// come from a map; the stable sorts below preserve it for ties and for the
+	// default (unspecified) order, keeping pagination consistent across requests.
+	sort.Slice(tasks, func(i, j int) bool {
+		if !tasks[i].CreatedAt.Equal(tasks[j].CreatedAt) {
+			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+		}
+		return tasks[i].ID < tasks[j].ID
+	})
 	switch order {
 	case models.SortOrderCreatedAtAsc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
 		})
 	case models.SortOrderCreatedAtDesc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
 		})
 	case models.SortOrderDueDateAsc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			if tasks[i].DueDate == nil {
 				return false
 			}
@@ -490,7 +499,7 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 			return tasks[i].DueDate.Before(*tasks[j].DueDate)
 		})
 	case models.SortOrderDueDateDesc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			if tasks[i].DueDate == nil {
 				return false
 			}
@@ -500,11 +509,11 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 			return tasks[i].DueDate.After(*tasks[j].DueDate)
 		})
 	case models.SortOrderPriorityAsc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].Priority.GetValue() < tasks[j].Priority.GetValue()
 		})
 	case models.SortOrderPriorityDesc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].Priority.GetValue() > tasks[j].Priority.GetValue()
 		})
 	}
