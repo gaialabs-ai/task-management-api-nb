@@ -7,17 +7,25 @@ A task management REST API built with Go and the Gin framework. This implementat
 ```
 .
 ├── cmd/
-│   └── rest-server/        # REST server entry point
+│   └── rest-server/              # REST server entry point (license check, Gin setup)
 │       └── main.go
-├── internal/               # Private application code
-│   ├── models/            # Data models and types
+├── internal/                     # Private application code
+│   ├── models/                   # Data models and request/response types
+│   │   ├── comment.go
 │   │   └── task.go
-│   └── services/          # Business logic
-│       └── task_service.go
-├── rest/                   # REST API implementation
-│   └── server/            # HTTP handlers and routing
-│       └── handlers.go
-├── go.mod                  # Go module definition
+│   ├── notifications/            # Notifier interface and default LogNotifier
+│   │   ├── notifier.go
+│   │   └── notifier_test.go
+│   └── services/                 # Business logic (in-memory storage)
+│       ├── comment_service.go
+│       ├── task_service.go
+│       └── task_service_test.go
+├── rest/                         # REST API implementation
+│   └── server/                   # HTTP handlers and routing
+│       ├── handlers.go
+│       └── handlers_test.go
+├── go.mod                        # Go module definition
+├── go.sum                        # Dependency checksums
 └── README.md
 ```
 
@@ -55,6 +63,30 @@ The server reads the port from the `PORT` environment variable. If not set, it d
 PORT=3000 go run cmd/rest-server/main.go
 ```
 
+**Gin Mode:**
+If `GIN_MODE` is not set, the server runs Gin in `debug` mode. Set `GIN_MODE=release` to use release mode.
+
+```bash
+GIN_MODE=release PORT=3000 go run cmd/rest-server/main.go
+```
+
+## Testing
+
+Run all commands from `src/` (where `go.mod` lives):
+
+```bash
+go build ./...      # Compile all packages
+go vet ./...        # Static checks
+go test ./...       # Run the test suite
+go test -race ./... # Run the test suite with the race detector (recommended)
+```
+
+Verification runs through `go test`, not by starting the server. The server binary needs the workstation license (see [Required Configuration](#required-configuration)), so it cannot be started on other machines. The HTTP tests in `rest/server/handlers_test.go` build an in-process Gin engine (`gin.New()` + `server.NewHandler(svc).RegisterRoutes(r)`) and send requests through `httptest`. They exercise the same router and handlers that `main.go` wires up, including `GET /health`. The tests use only the standard `testing` package:
+
+- `internal/services/task_service_test.go` - service unit tests (overdue filtering, sorting and pagination, assignment and notifications, `ListTasks` pagination regression) using a frozen clock and a recording fake notifier
+- `internal/notifications/notifier_test.go` - `LogNotifier` output
+- `rest/server/handlers_test.go` - HTTP tests for the routes, status codes and error envelopes
+
 ## API Endpoints
 
 ### Health Check
@@ -63,11 +95,75 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/search` - Search tasks by title, description and tags (case-insensitive)
+  - Query params: `q` (required), `page_size` (default 20, 1-100)
+  - Response: `{tasks, total_count, query}`, ordered by relevance (title matches first, then description, then tags)
+- `GET /api/v1/tasks/stats` - Task counts: `{total, by_status, by_priority}`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see [Overdue Tasks](#overdue-tasks))
+  - Query params: `page_size`, `page_token`
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email and send an assignment notification (see [Assign a Task](#assign-a-task))
 - `DELETE /api/v1/tasks/:id` - Delete a task
+
+### Comments
+- `GET /api/v1/tasks/:id/comments` - List comments on a task
+  - Response: `{comments, total}`; 404 `NOT_FOUND` if the task does not exist
+- `POST /api/v1/tasks/:id/comments` - Add a comment to a task
+  - Body: `{"author": "string (required, 1-100 chars)", "body": "string (required, 1-5000 chars)"}`
+  - Returns `201 Created` with the comment; 400 `VALIDATION_ERROR` for invalid input; 404 `NOT_FOUND` if the task does not exist
+- `DELETE /api/v1/tasks/:id/comments/:commentId` - Delete a comment
+  - Returns `204 No Content`; 404 `NOT_FOUND` if the task or comment does not exist
+
+### Overdue Tasks
+
+`GET /api/v1/tasks/overdue` returns tasks that are past their due date and still open.
+
+**Overdue rule:** a task is overdue when:
+- `due_date` is set **and** strictly before the current time (a task due exactly now is not overdue), and
+- `status` is not `completed` or `cancelled`. Only `pending`, `in_progress` and `on_hold` tasks qualify.
+
+**Sorting:** by `due_date` ascending (oldest first). Tasks with the same `due_date` are ordered by `id`.
+
+**Query parameters** (same pagination as `GET /api/v1/tasks`):
+- `page_size` - number of tasks per page (default `20`, min `1`, max `100`)
+- `page_token` - offset token taken from `next_page_token` of the previous page
+
+**Response** (`200 OK`): `{tasks, next_page_token?, total_count}`
+- `next_page_token` is only present when more results remain
+- `total_count` is the total number of overdue tasks across all pages
+- If no tasks are overdue, the response is still `200 OK` with `total_count: 0`
+
+**Errors:**
+- `400 Bad Request` / `VALIDATION_ERROR` - invalid `page_size` (e.g. `0`, `101` or not a number)
+
+### Assign a Task
+
+`POST /api/v1/tasks/:id/assign` assigns a task to a user and sends an assignment notification.
+
+**Request body:**
+```json
+{
+  "assigned_to": "user@example.com"
+}
+```
+- `assigned_to` - required, must be a valid email address
+
+**Response** (`200 OK`): the updated task, with `assigned_to` set and `updated_at` refreshed.
+
+**Notification:** after a successful assignment, the service sends an assignment notification through the `Notifier` interface (`internal/notifications`). The default implementation, `LogNotifier`, writes a log line:
+
+```
+assignment notification: task <id> "<title>" assigned to <email>
+```
+
+If the notifier returns an error, the error is logged and the assignment is **not** rolled back. The request still returns `200 OK`. A different notification implementation can be added behind the `Notifier` interface without changing the endpoint.
+
+**Errors:**
+- `400 Bad Request` / `VALIDATION_ERROR` - missing `assigned_to`, invalid email address, or malformed JSON
+- `404 Not Found` / `NOT_FOUND` - no task with the given ID
 
 ## Task Model
 
@@ -140,6 +236,110 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
 
+### List Overdue Tasks
+```bash
+# First page (default page size of 20)
+curl http://localhost:8080/api/v1/tasks/overdue
+
+# Two tasks per page, then the next page
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=2"
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=2&page_token=2"
+```
+
+Sample response:
+```json
+{
+  "tasks": [
+    {
+      "id": "3f1c2a9e-8b7d-4c1e-9a2f-1d4e5b6c7a80",
+      "title": "Submit quarterly report",
+      "description": "Finance needs the Q3 numbers",
+      "status": "in_progress",
+      "priority": "high",
+      "tags": ["finance"],
+      "created_by": "system",
+      "created_at": "2026-10-01T09:00:00Z",
+      "updated_at": "2026-10-10T12:30:00Z",
+      "due_date": "2026-10-15T17:00:00Z"
+    },
+    {
+      "id": "7a2b4c6d-1e3f-4a5b-8c9d-0e1f2a3b4c5d",
+      "title": "Renew SSL certificate",
+      "description": "",
+      "status": "pending",
+      "priority": "critical",
+      "tags": ["ops"],
+      "created_by": "system",
+      "assigned_to": "ops@example.com",
+      "created_at": "2026-10-05T08:00:00Z",
+      "updated_at": "2026-10-05T08:00:00Z",
+      "due_date": "2026-10-20T00:00:00Z"
+    }
+  ],
+  "next_page_token": "2",
+  "total_count": 3
+}
+```
+
+When nothing is overdue:
+```json
+{
+  "tasks": null,
+  "total_count": 0
+}
+```
+
+### Assign a Task
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "user@example.com"}'
+```
+
+An invalid email returns `400 Bad Request`:
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Key: 'AssignTaskRequest.AssignedTo' Error:Field validation for 'AssignedTo' failed on the 'email' tag"
+  }
+}
+```
+
+An unknown task ID returns `404 Not Found`:
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "task with ID {id} not found"
+  }
+}
+```
+
+### Search Tasks
+```bash
+curl "http://localhost:8080/api/v1/tasks/search?q=report&page_size=10"
+```
+
+### Task Statistics
+```bash
+curl http://localhost:8080/api/v1/tasks/stats
+```
+
+### Comments
+```bash
+# Add a comment
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/comments \
+  -H "Content-Type: application/json" \
+  -d '{"author": "alice", "body": "Started on this"}'
+
+# List comments
+curl http://localhost:8080/api/v1/tasks/{id}/comments
+
+# Delete a comment
+curl -X DELETE http://localhost:8080/api/v1/tasks/{id}/comments/{commentId}
+```
+
 ## Features
 
 - **Gin Framework** - Fast HTTP router with middleware support
@@ -150,6 +350,9 @@ curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 - **Pagination** - Page-based pagination with tokens
 - **Filtering & Sorting** - Query by status, assignee, tags; sort by various fields
 - **UUID-based IDs** - Unique identifiers for all tasks
+- **Overdue Tasks** - Paginated list of open tasks past their due date
+- **Assignment Notifications** - Pluggable `Notifier` interface with a log-based default
+- **Search, Stats & Comments** - Full-text search, aggregate counts and per-task comments
 
 ## HTTP Status Codes
 
