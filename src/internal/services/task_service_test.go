@@ -164,7 +164,7 @@ func TestListTasksWalksAllPages(t *testing.T) {
 func TestListTasksFiltersAndSortCharacterization(t *testing.T) {
 	s := NewTaskService()
 	alice := "alice@example.com"
-	a, _ := s.CreateTask(models.CreateTaskRequest{Title: "a", Tags: []string{"x", "y"}, AssignedTo: &alice, DueDate: timePtr(testNow.Add(2 * time.Hour))})
+	_, _ = s.CreateTask(models.CreateTaskRequest{Title: "a", Tags: []string{"x", "y"}, AssignedTo: &alice, DueDate: timePtr(testNow.Add(2 * time.Hour))})
 	b, _ := s.CreateTask(models.CreateTaskRequest{Title: "b", Tags: []string{"x"}, DueDate: timePtr(testNow.Add(time.Hour))})
 	mustSetStatus(t, s, b.ID, models.TaskStatusInProgress)
 
@@ -196,7 +196,6 @@ func TestListTasksFiltersAndSortCharacterization(t *testing.T) {
 			t.Errorf("titles = %v, want b, a first", got)
 		}
 	})
-	_ = a
 }
 
 // ---- ListOverdueTasks ----
@@ -275,10 +274,9 @@ func TestListOverdueTasksEmptyReturnsEmptySlice(t *testing.T) {
 
 func TestListOverdueTasksOrdering(t *testing.T) {
 	s := newTestService(&fakeNotifier{})
-	c := mustCreate(t, s, "c", timePtr(testNow.Add(-1*time.Hour)))
-	a := mustCreate(t, s, "a", timePtr(testNow.Add(-3*time.Hour)))
-	b := mustCreate(t, s, "b", timePtr(testNow.Add(-2*time.Hour)))
-	_, _, _ = a, b, c
+	mustCreate(t, s, "c", timePtr(testNow.Add(-1*time.Hour)))
+	mustCreate(t, s, "a", timePtr(testNow.Add(-3*time.Hour)))
+	mustCreate(t, s, "b", timePtr(testNow.Add(-2*time.Hour)))
 
 	resp, _ := s.ListOverdueTasks(models.ListOverdueTasksQuery{})
 	if got := titles(resp.Tasks); !equalStrings(got, []string{"a", "b", "c"}) {
