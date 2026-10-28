@@ -98,13 +98,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
-	page, nextPageToken, totalCount := paginate(tasks, query.PageSize, query.PageToken)
-
-	return &models.ListTasksResponse{
-		Tasks:         page,
-		NextPageToken: nextPageToken,
-		TotalCount:    totalCount,
-	}, nil
+	return newListResponse(tasks, query.PageSize, query.PageToken), nil
 }
 
 // ListOverdueTasks returns a paginated list of tasks whose due date is before
@@ -135,16 +129,12 @@ func (s *TaskService) ListOverdueTasks(query models.ListOverdueTasksQuery) (*mod
 		return overdue[i].ID < overdue[j].ID
 	})
 
-	page, nextPageToken, totalCount := paginate(overdue, query.PageSize, query.PageToken)
-	if page == nil {
-		page = []models.Task{}
+	resp := newListResponse(overdue, query.PageSize, query.PageToken)
+	// The overdue endpoint always returns a JSON array, never null.
+	if resp.Tasks == nil {
+		resp.Tasks = []models.Task{}
 	}
-
-	return &models.ListTasksResponse{
-		Tasks:         page,
-		NextPageToken: nextPageToken,
-		TotalCount:    totalCount,
-	}, nil
+	return resp, nil
 }
 
 // AssignTask assigns a task to the given email address and notifies the

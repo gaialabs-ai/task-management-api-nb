@@ -55,3 +55,13 @@ func paginate(sorted []*models.Task, pageSize int, pageToken string) ([]models.T
 
 	return page, nextPageToken, totalCount
 }
+
+// newListResponse paginates sorted and assembles the list response.
+func newListResponse(sorted []*models.Task, pageSize int, pageToken string) *models.ListTasksResponse {
+	page, nextPageToken, totalCount := paginate(sorted, pageSize, pageToken)
+	return &models.ListTasksResponse{
+		Tasks:         page,
+		NextPageToken: nextPageToken,
+		TotalCount:    totalCount,
+	}
+}
