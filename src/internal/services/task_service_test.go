@@ -131,6 +131,38 @@ func TestListTasksPaginationCharacterization(t *testing.T) {
 	}
 }
 
+func TestListTasksPaginationNoDuplicates(t *testing.T) {
+	for _, order := range []models.SortOrder{"", models.SortOrderPriorityAsc} {
+		s := NewTaskService()
+		for i := 0; i < 30; i++ {
+			mustCreate(t, s, fmt.Sprintf("task %02d", i), nil)
+		}
+		seen := map[string]bool{}
+		token := ""
+		var total int
+		for pages := 0; pages < 50; pages++ {
+			resp, err := s.ListTasks(models.ListTasksQuery{PageSize: 3, PageToken: token, SortOrder: order})
+			if err != nil {
+				t.Fatalf("ListTasks: %v", err)
+			}
+			total = resp.TotalCount
+			for _, task := range resp.Tasks {
+				if seen[task.ID] {
+					t.Fatalf("order %q: duplicate id %s across pages", order, task.ID)
+				}
+				seen[task.ID] = true
+			}
+			if resp.NextPageToken == "" {
+				break
+			}
+			token = resp.NextPageToken
+		}
+		if len(seen) != total {
+			t.Errorf("order %q: saw %d unique ids, want %d", order, len(seen), total)
+		}
+	}
+}
+
 func TestListTasksWalksAllPages(t *testing.T) {
 	s := NewTaskService()
 	for i := 0; i < 45; i++ {

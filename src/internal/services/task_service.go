@@ -94,6 +94,9 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	// Apply filters
 	tasks = s.filterTasks(tasks, query)
 
+	// Deterministic base order (map iteration is random); keeps pagination stable.
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+
 	// Apply sorting
 	s.sortTasks(tasks, query.SortOrder)
 
@@ -427,15 +430,15 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 	switch order {
 	case models.SortOrderCreatedAtAsc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
 		})
 	case models.SortOrderCreatedAtDesc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
 		})
 	case models.SortOrderDueDateAsc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			if tasks[i].DueDate == nil {
 				return false
 			}
@@ -445,7 +448,7 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 			return tasks[i].DueDate.Before(*tasks[j].DueDate)
 		})
 	case models.SortOrderDueDateDesc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			if tasks[i].DueDate == nil {
 				return false
 			}
@@ -455,11 +458,11 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 			return tasks[i].DueDate.After(*tasks[j].DueDate)
 		})
 	case models.SortOrderPriorityAsc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].Priority.GetValue() < tasks[j].Priority.GetValue()
 		})
 	case models.SortOrderPriorityDesc:
-		sort.Slice(tasks, func(i, j int) bool {
+		sort.SliceStable(tasks, func(i, j int) bool {
 			return tasks[i].Priority.GetValue() > tasks[j].Priority.GetValue()
 		})
 	}
