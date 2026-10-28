@@ -205,7 +205,12 @@ func (s *TaskService) ListOverdueTasks(query models.ListOverdueTasksQuery) (*mod
 		return tasks[i].ID < tasks[j].ID
 	})
 
-	return paginate(tasks, query.PageSize, query.PageToken), nil
+	response := paginate(tasks, query.PageSize, query.PageToken)
+	// Serialize an empty page as [] rather than null
+	if response.Tasks == nil {
+		response.Tasks = []models.Task{}
+	}
+	return response, nil
 }
 
 // AssignTask assigns a task to the given email address and sends an assignment

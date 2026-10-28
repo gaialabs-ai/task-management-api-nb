@@ -291,6 +291,9 @@ func TestListOverdueTasks_HTTPEmpty(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"tasks":[]`) {
+		t.Errorf("body = %s, want an empty tasks array", rec.Body.String())
+	}
 	var resp models.ListTasksResponse
 	decodeJSON(t, rec, &resp)
 	if resp.TotalCount != 0 {

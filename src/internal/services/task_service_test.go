@@ -344,8 +344,8 @@ func TestListOverdueTasks_Empty(t *testing.T) {
 			if resp.TotalCount != 0 {
 				t.Errorf("TotalCount = %d, want 0", resp.TotalCount)
 			}
-			if len(resp.Tasks) != 0 {
-				t.Errorf("got %d tasks, want 0", len(resp.Tasks))
+			if resp.Tasks == nil || len(resp.Tasks) != 0 {
+				t.Errorf("Tasks = %#v, want a non-nil empty slice", resp.Tasks)
 			}
 			if resp.NextPageToken != "" {
 				t.Errorf("NextPageToken = %q, want empty", resp.NextPageToken)

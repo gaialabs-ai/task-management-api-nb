@@ -81,7 +81,7 @@ go test ./...       # Run the test suite
 go test -race ./... # Run the test suite with the race detector (recommended)
 ```
 
-Verification runs through `go test`, not by starting the server. The server binary needs the workstation license (see [Required Configuration](#required-configuration)), so it cannot be started on other machines. The HTTP tests in `rest/server/handlers_test.go` build an in-process Gin engine (`gin.New()` + `server.NewHandler(svc).RegisterRoutes(r)`) and send requests through `httptest`. They exercise the same router and handlers that `main.go` wires up, including `GET /health`. The tests use only the standard `testing` package:
+The test suite does not need the server to be running, so it also works on machines without the workstation license (see [Required Configuration](#required-configuration)). On the licensed workstation you can additionally start the server (`go run ./cmd/rest-server`) and call `curl http://localhost:8080/health`. The HTTP tests in `rest/server/handlers_test.go` build an in-process Gin engine (`gin.New()` + `server.NewHandler(svc).RegisterRoutes(r)`) and send requests through `httptest`. They exercise the same router and handlers that `main.go` wires up, including `GET /health`. The tests use only the standard `testing` package:
 
 - `internal/services/task_service_test.go` - service unit tests (overdue filtering, sorting and pagination, assignment and notifications, `ListTasks` pagination regression) using a frozen clock and a recording fake notifier
 - `internal/notifications/notifier_test.go` - `LogNotifier` output
@@ -134,7 +134,7 @@ Verification runs through `go test`, not by starting the server. The server bina
 **Response** (`200 OK`): `{tasks, next_page_token?, total_count}`
 - `next_page_token` is only present when more results remain
 - `total_count` is the total number of overdue tasks across all pages
-- If no tasks are overdue, the response is still `200 OK` with `total_count: 0`
+- If no tasks are overdue, the response is still `200 OK` with `"tasks": []` and `total_count: 0`
 
 **Errors:**
 - `400 Bad Request` / `VALIDATION_ERROR` - invalid `page_size` (e.g. `0`, `101` or not a number)
