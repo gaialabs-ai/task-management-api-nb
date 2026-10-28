@@ -148,9 +148,6 @@ func (h *Handler) listOverdueTasks(c *gin.Context) {
 
 	// Only pagination applies to this endpoint
 	query = models.ListTasksQuery{PageSize: query.PageSize, PageToken: query.PageToken}
-	if query.PageSize == 0 {
-		query.PageSize = 20
-	}
 
 	response, err := h.taskService.ListOverdueTasks(query)
 	if err != nil {
