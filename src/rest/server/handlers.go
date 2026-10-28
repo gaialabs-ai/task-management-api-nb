@@ -43,10 +43,12 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 			tasks.GET("", h.listTasks)
 			tasks.GET("/search", h.searchTasks)
 			tasks.GET("/stats", h.getTaskStats)
+			tasks.GET("/overdue", h.listOverdueTasks)
 			tasks.GET("/:id", h.getTask)
 			tasks.POST("", h.createTask)
 			tasks.PUT("/:id", h.updateTask)
 			tasks.PATCH("/:id/status", h.updateTaskStatus)
+			tasks.POST("/:id/assign", h.assignTask)
 			tasks.DELETE("/:id", h.deleteTask)
 
 			tasks.GET("/:id/comments", h.listComments)
