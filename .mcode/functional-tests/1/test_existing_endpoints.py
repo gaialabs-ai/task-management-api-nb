@@ -1,7 +1,7 @@
 """Regression tests: existing endpoints keep their behavior (live server)."""
 import requests
 
-from conftest import API, BASE_URL, TIMEOUT, record
+from conftest import API, TIMEOUT, record
 
 
 class TestHealthAndList:
