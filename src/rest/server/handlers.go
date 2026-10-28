@@ -117,27 +117,27 @@ func (h *Handler) listTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// respondError writes the standard JSON error envelope.
+func respondError(c *gin.Context, status int, code string, err error) {
+	c.JSON(status, models.ErrorResponse{
+		Error: models.ErrorDetail{
+			Code:    code,
+			Message: err.Error(),
+		},
+	})
+}
+
 // listOverdueTasks handles GET /tasks/overdue
 func (h *Handler) listOverdueTasks(c *gin.Context) {
 	var query models.ListOverdueTasksQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    "VALIDATION_ERROR",
-				Message: err.Error(),
-			},
-		})
+		respondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err)
 		return
 	}
 
 	response, err := h.taskService.ListOverdueTasks(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    "INTERNAL_ERROR",
-				Message: err.Error(),
-			},
-		})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err)
 		return
 	}
 
@@ -150,12 +150,7 @@ func (h *Handler) assignTask(c *gin.Context) {
 
 	var req models.AssignTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    "VALIDATION_ERROR",
-				Message: err.Error(),
-			},
-		})
+		respondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err)
 		return
 	}
 
@@ -172,12 +167,7 @@ func (h *Handler) assignTask(c *gin.Context) {
 			code = "VALIDATION_ERROR"
 		}
 
-		c.JSON(status, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    code,
-				Message: err.Error(),
-			},
-		})
+		respondError(c, status, code, err)
 		return
 	}
 
