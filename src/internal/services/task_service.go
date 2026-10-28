@@ -148,7 +148,11 @@ func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.List
 
 	startIndex := 0
 	if pageToken != "" {
-		// Negative offsets are ignored so they cannot slice out of range
+		// Intentional deviation from the pre-refactor ListTasks: a negative
+		// page_token used to panic (slice bounds out of range -> HTTP 500 via
+		// gin.Recovery). It is now ignored like a non-numeric token and starts
+		// at the first page. paginate is shared with ListOverdueTasks, so it
+		// must never panic.
 		if idx, err := strconv.Atoi(pageToken); err == nil && idx >= 0 {
 			startIndex = idx
 		}

@@ -130,6 +130,7 @@ The test suite does not need the server to be running, so it also works on machi
 **Query parameters** (same pagination as `GET /api/v1/tasks`):
 - `page_size` - number of tasks per page (default `20`, min `1`, max `100`)
 - `page_token` - offset token taken from `next_page_token` of the previous page
+  (a non-numeric or negative token is ignored and the first page is returned; previously a negative token on `GET /api/v1/tasks` caused a 500)
 
 **Response** (`200 OK`): `{tasks, next_page_token?, total_count}`
 - `next_page_token` is only present when more results remain

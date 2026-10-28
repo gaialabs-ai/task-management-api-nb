@@ -669,6 +669,7 @@ func TestListTasks_PaginationRegression(t *testing.T) {
 		{name: "token at total count is empty", pageSize: 10, token: "105", from: 0, to: 0, wantNext: ""},
 		{name: "out of range token is empty", pageSize: 10, token: "500", from: 0, to: 0, wantNext: ""},
 		{name: "non-numeric token starts at zero", pageSize: 10, token: "abc", from: 0, to: 10, wantNext: "10"},
+		// Intentional deviation from origin, where a negative token panicked.
 		{name: "negative token starts at zero", pageSize: 10, token: "-5", from: 0, to: 10, wantNext: "10"},
 	}
 
