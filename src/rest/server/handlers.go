@@ -17,20 +17,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// assignmentNotifier is the notification seam; *notify.Notifier satisfies it.
+type assignmentNotifier interface {
+	Enabled() bool
+	TaskAssigned(ctx context.Context, assignee, title string) error
+}
+
 // Handler holds the HTTP handlers
 type Handler struct {
 	taskService    *services.TaskService
 	commentService *services.CommentService
-	notifier       *notify.Notifier
+	notifier       assignmentNotifier
 	startedAt      time.Time
 }
 
 // NewHandler creates a new handler instance
 func NewHandler(taskService *services.TaskService) *Handler {
+	return NewHandlerWithNotifier(taskService, notify.FromEnv())
+}
+
+// NewHandlerWithNotifier creates a handler with an explicit notifier (used by tests)
+func NewHandlerWithNotifier(taskService *services.TaskService, notifier assignmentNotifier) *Handler {
 	return &Handler{
 		taskService:    taskService,
 		commentService: services.NewCommentService(taskService),
-		notifier:       notify.FromEnv(),
+		notifier:       notifier,
 		startedAt:      time.Now(),
 	}
 }
@@ -48,8 +59,10 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 			tasks.GET("", h.listTasks)
 			tasks.GET("/search", h.searchTasks)
 			tasks.GET("/stats", h.getTaskStats)
+			tasks.GET("/overdue", h.listOverdueTasks)
 			tasks.GET("/:id", h.getTask)
 			tasks.POST("", h.createTask)
+			tasks.POST("/:id/assign", h.assignTask)
 			tasks.PUT("/:id", h.updateTask)
 			tasks.PATCH("/:id/status", h.updateTaskStatus)
 			tasks.DELETE("/:id", h.deleteTask)
@@ -118,6 +131,70 @@ func (h *Handler) listTasks(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// listOverdueTasks handles GET /tasks/overdue
+func (h *Handler) listOverdueTasks(c *gin.Context) {
+	var query models.ListTasksQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	// Only pagination applies to this endpoint
+	query = models.ListTasksQuery{PageSize: query.PageSize, PageToken: query.PageToken}
+	if query.PageSize == 0 {
+		query.PageSize = 20
+	}
+
+	response, err := h.taskService.ListOverdueTasks(query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "INTERNAL_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// assignTask handles POST /tasks/:id/assign
+func (h *Handler) assignTask(c *gin.Context) {
+	id := c.Param("id")
+
+	var req models.AssignTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	task, err := h.taskService.AssignTask(id, req.AssignedTo)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "NOT_FOUND",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	h.notifyAssigned(req.AssignedTo, task.Title)
+
+	c.JSON(http.StatusOK, task)
 }
 
 // searchTasks handles GET /tasks/search?q=<query>

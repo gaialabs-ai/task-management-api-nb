@@ -16,12 +16,14 @@ import (
 type TaskService struct {
 	mu    sync.RWMutex
 	tasks map[string]*models.Task
+	now   func() time.Time
 }
 
 // NewTaskService creates a new task service instance
 func NewTaskService() *TaskService {
 	s := &TaskService{
 		tasks: make(map[string]*models.Task),
+		now:   time.Now,
 	}
 	s.initializeSampleData()
 	return s
@@ -67,8 +69,19 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
+	paginatedTasks, nextPageToken := paginateTasks(tasks, query.PageSize, query.PageToken)
+
+	return &models.ListTasksResponse{
+		Tasks:         paginatedTasks,
+		NextPageToken: nextPageToken,
+		TotalCount:    len(tasks),
+	}, nil
+}
+
+// paginateTasks slices an already filtered and sorted task list. The page token
+// is a stringified offset; a negative or non-numeric token means offset 0.
+func paginateTasks(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {
 	totalCount := len(tasks)
-	pageSize := query.PageSize
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -77,8 +90,8 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	}
 
 	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
+	if pageToken != "" {
+		if idx, err := strconv.Atoi(pageToken); err == nil && idx > 0 {
 			startIndex = idx
 		}
 	}
@@ -100,11 +113,60 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		nextPageToken = strconv.Itoa(endIndex)
 	}
 
+	return paginatedTasks, nextPageToken
+}
+
+// ListOverdueTasks returns tasks whose due date is strictly before now and whose
+// status is neither completed nor cancelled, ordered by due date ascending with
+// the task ID as tie-breaker.
+func (s *TaskService) ListOverdueTasks(query models.ListTasksQuery) (*models.ListTasksResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+	var overdue []*models.Task
+	for _, task := range s.tasks {
+		if task.DueDate == nil || !task.DueDate.Before(now) {
+			continue
+		}
+		if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusCancelled {
+			continue
+		}
+		overdue = append(overdue, task)
+	}
+
+	sort.Slice(overdue, func(i, j int) bool {
+		if !overdue[i].DueDate.Equal(*overdue[j].DueDate) {
+			return overdue[i].DueDate.Before(*overdue[j].DueDate)
+		}
+		return overdue[i].ID < overdue[j].ID
+	})
+
+	paginatedTasks, nextPageToken := paginateTasks(overdue, query.PageSize, query.PageToken)
+
 	return &models.ListTasksResponse{
 		Tasks:         paginatedTasks,
 		NextPageToken: nextPageToken,
-		TotalCount:    totalCount,
+		TotalCount:    len(overdue),
 	}, nil
+}
+
+// AssignTask sets the assignee of a task and returns a copy that is safe to serialize
+func (s *TaskService) AssignTask(id, assignee string) (*models.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.tasks[id]
+	if !exists {
+		return nil, fmt.Errorf("task with ID %s not found", id)
+	}
+
+	task.AssignedTo = &assignee
+	task.UpdatedAt = time.Now()
+
+	snapshot := *task
+	snapshot.Tags = append([]string(nil), task.Tags...)
+	return &snapshot, nil
 }
 
 // GetTask retrieves a task by ID
