@@ -200,7 +200,9 @@ curl "http://localhost:8080/api/v1/tasks/overdue?page_size=2&page_token=2"
 
 ### Assign a Task
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign   -H "Content-Type: application/json"   -d '{"assigned_to": "alice@example.com"}'
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
 ```
 
 ### Update Task Status
