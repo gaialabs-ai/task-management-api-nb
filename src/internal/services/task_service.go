@@ -148,7 +148,8 @@ func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.List
 
 	startIndex := 0
 	if pageToken != "" {
-		if idx, err := strconv.Atoi(pageToken); err == nil {
+		// Negative offsets are ignored so they cannot slice out of range
+		if idx, err := strconv.Atoi(pageToken); err == nil && idx >= 0 {
 			startIndex = idx
 		}
 	}
