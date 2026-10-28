@@ -2,54 +2,26 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
+	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/testutil"
 	"github.com/gin-gonic/gin"
 )
 
 // testNow is the frozen clock value used by the HTTP tests
-var testNow = time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-
-// notifyCall records a single NotifyAssignment invocation
-type notifyCall struct {
-	task     models.Task
-	assignee string
-}
-
-// recordingNotifier is a fake Notifier that records every call
-type recordingNotifier struct {
-	mu    sync.Mutex
-	calls []notifyCall
-}
-
-// NotifyAssignment records the call
-func (n *recordingNotifier) NotifyAssignment(task models.Task, assignee string) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.calls = append(n.calls, notifyCall{task: task, assignee: assignee})
-	return nil
-}
-
-// recorded returns a snapshot of the recorded calls
-func (n *recordingNotifier) recorded() []notifyCall {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return append([]notifyCall(nil), n.calls...)
-}
+var testNow = testutil.Now
 
 // newTestRouter builds an empty service with a frozen clock and a recording
 // notifier, and registers the real routes on a fresh Gin engine
-func newTestRouter() (*gin.Engine, *services.TaskService, *recordingNotifier) {
+func newTestRouter() (*gin.Engine, *services.TaskService, *testutil.RecordingNotifier) {
 	gin.SetMode(gin.TestMode)
-	n := &recordingNotifier{}
+	n := &testutil.RecordingNotifier{}
 	svc := services.NewTaskServiceWithOptions(
 		services.WithClock(func() time.Time { return testNow }),
 		services.WithNotifier(n),
@@ -80,48 +52,6 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, v interface{}) {
 	if err := json.Unmarshal(rec.Body.Bytes(), v); err != nil {
 		t.Fatalf("decoding response body %q: %v", rec.Body.String(), err)
 	}
-}
-
-// ptrTime returns a pointer to the given time
-func ptrTime(t time.Time) *time.Time {
-	return &t
-}
-
-// mustCreateTask creates a task through the service with the given status and due date
-func mustCreateTask(t *testing.T, svc *services.TaskService, title string, status models.TaskStatus, due *time.Time) string {
-	t.Helper()
-	task, err := svc.CreateTask(models.CreateTaskRequest{Title: title, DueDate: due})
-	if err != nil {
-		t.Fatalf("CreateTask(%q) returned error: %v", title, err)
-	}
-	if status != "" && status != models.TaskStatusPending {
-		if _, err := svc.UpdateTask(task.ID, models.UpdateTaskRequest{Status: &status}); err != nil {
-			t.Fatalf("UpdateTask(%q) status %q returned error: %v", task.ID, status, err)
-		}
-	}
-	return task.ID
-}
-
-// taskIDs returns the IDs of the given tasks in order
-func taskIDs(tasks []models.Task) []string {
-	ids := make([]string, 0, len(tasks))
-	for _, task := range tasks {
-		ids = append(ids, task.ID)
-	}
-	return ids
-}
-
-// equalStrings reports whether two string slices have the same elements in order
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // assertError checks the status code and error code of an error response
@@ -162,14 +92,14 @@ func TestHealthCheck(t *testing.T) {
 func TestListOverdueTasks_HTTP(t *testing.T) {
 	r, svc, _ := newTestRouter()
 
-	dueLate := mustCreateTask(t, svc, "due 1h ago", models.TaskStatusPending, ptrTime(testNow.Add(-1*time.Hour)))
-	dueEarly := mustCreateTask(t, svc, "due 3h ago", models.TaskStatusOnHold, ptrTime(testNow.Add(-3*time.Hour)))
-	dueMid := mustCreateTask(t, svc, "due 2h ago", models.TaskStatusInProgress, ptrTime(testNow.Add(-2*time.Hour)))
-	mustCreateTask(t, svc, "completed", models.TaskStatusCompleted, ptrTime(testNow.Add(-5*time.Hour)))
-	mustCreateTask(t, svc, "cancelled", models.TaskStatusCancelled, ptrTime(testNow.Add(-5*time.Hour)))
-	mustCreateTask(t, svc, "future", models.TaskStatusPending, ptrTime(testNow.Add(time.Hour)))
-	mustCreateTask(t, svc, "no due date", models.TaskStatusPending, nil)
-	mustCreateTask(t, svc, "due now", models.TaskStatusPending, ptrTime(testNow))
+	dueLate := testutil.MustCreateTask(t, svc, "due 1h ago", models.TaskStatusPending, testutil.PtrTime(testNow.Add(-1*time.Hour)))
+	dueEarly := testutil.MustCreateTask(t, svc, "due 3h ago", models.TaskStatusOnHold, testutil.PtrTime(testNow.Add(-3*time.Hour)))
+	dueMid := testutil.MustCreateTask(t, svc, "due 2h ago", models.TaskStatusInProgress, testutil.PtrTime(testNow.Add(-2*time.Hour)))
+	testutil.MustCreateTask(t, svc, "completed", models.TaskStatusCompleted, testutil.PtrTime(testNow.Add(-5*time.Hour)))
+	testutil.MustCreateTask(t, svc, "cancelled", models.TaskStatusCancelled, testutil.PtrTime(testNow.Add(-5*time.Hour)))
+	testutil.MustCreateTask(t, svc, "future", models.TaskStatusPending, testutil.PtrTime(testNow.Add(time.Hour)))
+	testutil.MustCreateTask(t, svc, "no due date", models.TaskStatusPending, nil)
+	testutil.MustCreateTask(t, svc, "due now", models.TaskStatusPending, testutil.PtrTime(testNow))
 
 	ordered := []string{dueEarly, dueMid, dueLate}
 
@@ -199,7 +129,7 @@ func TestListOverdueTasks_HTTP(t *testing.T) {
 			if resp.TotalCount != len(ordered) {
 				t.Errorf("total_count = %d, want %d", resp.TotalCount, len(ordered))
 			}
-			if got := taskIDs(resp.Tasks); !equalStrings(got, tt.wantIDs) {
+			if got := testutil.TaskIDs(resp.Tasks); !testutil.EqualStrings(got, tt.wantIDs) {
 				t.Errorf("task IDs = %v, want %v", got, tt.wantIDs)
 			}
 			if resp.NextPageToken != tt.wantNext {
@@ -215,11 +145,7 @@ func TestListOverdueTasks_HTTP(t *testing.T) {
 func TestListOverdueTasks_HTTPPaginationOverFive(t *testing.T) {
 	r, svc, _ := newTestRouter()
 
-	var ids []string
-	for i := 0; i < 5; i++ {
-		due := testNow.Add(-time.Duration(5-i) * time.Hour)
-		ids = append(ids, mustCreateTask(t, svc, fmt.Sprintf("overdue %d", i), models.TaskStatusPending, ptrTime(due)))
-	}
+	ids := testutil.SeedOverdueTasks(t, svc, testNow, 5)
 
 	tests := []struct {
 		name     string
@@ -249,7 +175,7 @@ func TestListOverdueTasks_HTTPPaginationOverFive(t *testing.T) {
 			if resp.TotalCount != 5 {
 				t.Errorf("total_count = %d, want 5", resp.TotalCount)
 			}
-			if got, want := taskIDs(resp.Tasks), ids[tt.from:tt.to]; !equalStrings(got, want) {
+			if got, want := testutil.TaskIDs(resp.Tasks), ids[tt.from:tt.to]; !testutil.EqualStrings(got, want) {
 				t.Errorf("task IDs = %v, want %v", got, want)
 			}
 			if resp.NextPageToken != tt.wantNext {
@@ -261,7 +187,7 @@ func TestListOverdueTasks_HTTPPaginationOverFive(t *testing.T) {
 
 func TestListOverdueTasks_HTTPValidation(t *testing.T) {
 	r, svc, _ := newTestRouter()
-	mustCreateTask(t, svc, "overdue", models.TaskStatusPending, ptrTime(testNow.Add(-time.Hour)))
+	testutil.MustCreateTask(t, svc, "overdue", models.TaskStatusPending, testutil.PtrTime(testNow.Add(-time.Hour)))
 
 	tests := []struct {
 		name  string
@@ -284,8 +210,8 @@ func TestListOverdueTasks_HTTPValidation(t *testing.T) {
 func TestListOverdueTasks_HTTPEmpty(t *testing.T) {
 	r, svc, _ := newTestRouter()
 	// Nothing here is overdue
-	mustCreateTask(t, svc, "future", models.TaskStatusPending, ptrTime(testNow.Add(time.Hour)))
-	mustCreateTask(t, svc, "completed", models.TaskStatusCompleted, ptrTime(testNow.Add(-time.Hour)))
+	testutil.MustCreateTask(t, svc, "future", models.TaskStatusPending, testutil.PtrTime(testNow.Add(time.Hour)))
+	testutil.MustCreateTask(t, svc, "completed", models.TaskStatusCompleted, testutil.PtrTime(testNow.Add(-time.Hour)))
 
 	rec := doRequest(r, http.MethodGet, "/api/v1/tasks/overdue", "")
 	if rec.Code != http.StatusOK {
@@ -334,7 +260,7 @@ func TestListOverdueTasks_NotRoutedToGetTask(t *testing.T) {
 
 func TestAssignTask_HTTPSuccess(t *testing.T) {
 	r, svc, n := newTestRouter()
-	id := mustCreateTask(t, svc, "Write docs", models.TaskStatusPending, nil)
+	id := testutil.MustCreateTask(t, svc, "Write docs", models.TaskStatusPending, nil)
 
 	rec := doRequest(r, http.MethodPost, "/api/v1/tasks/"+id+"/assign", `{"assigned_to":"alice@example.com"}`)
 	if rec.Code != http.StatusOK {
@@ -356,18 +282,18 @@ func TestAssignTask_HTTPSuccess(t *testing.T) {
 		t.Errorf("body = %s, want it to contain assigned_to", rec.Body.String())
 	}
 
-	calls := n.recorded()
+	calls := n.Recorded()
 	if len(calls) != 1 {
 		t.Fatalf("notifier called %d times, want 1", len(calls))
 	}
-	if calls[0].assignee != "alice@example.com" {
-		t.Errorf("notified assignee = %q, want %q", calls[0].assignee, "alice@example.com")
+	if calls[0].Assignee != "alice@example.com" {
+		t.Errorf("notified assignee = %q, want %q", calls[0].Assignee, "alice@example.com")
 	}
-	if calls[0].task.ID != id {
-		t.Errorf("notified task ID = %q, want %q", calls[0].task.ID, id)
+	if calls[0].Task.ID != id {
+		t.Errorf("notified task ID = %q, want %q", calls[0].Task.ID, id)
 	}
-	if calls[0].task.AssignedTo == nil || *calls[0].task.AssignedTo != "alice@example.com" {
-		t.Errorf("notified task AssignedTo = %v, want %q", calls[0].task.AssignedTo, "alice@example.com")
+	if calls[0].Task.AssignedTo == nil || *calls[0].Task.AssignedTo != "alice@example.com" {
+		t.Errorf("notified task AssignedTo = %v, want %q", calls[0].Task.AssignedTo, "alice@example.com")
 	}
 
 	// The assignment is persisted and visible through GET /tasks/:id
@@ -401,12 +327,12 @@ func TestAssignTask_HTTPValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r, svc, n := newTestRouter()
-			id := mustCreateTask(t, svc, "Write docs", models.TaskStatusPending, nil)
+			id := testutil.MustCreateTask(t, svc, "Write docs", models.TaskStatusPending, nil)
 
 			rec := doRequest(r, http.MethodPost, "/api/v1/tasks/"+id+"/assign", tt.body)
 			assertError(t, rec, http.StatusBadRequest, "VALIDATION_ERROR")
 
-			if calls := n.recorded(); len(calls) != 0 {
+			if calls := n.Recorded(); len(calls) != 0 {
 				t.Errorf("notifier called %d times, want 0", len(calls))
 			}
 			stored, err := svc.GetTask(id)
@@ -421,7 +347,7 @@ func TestAssignTask_HTTPValidation(t *testing.T) {
 
 	t.Run("empty body", func(t *testing.T) {
 		r, svc, n := newTestRouter()
-		id := mustCreateTask(t, svc, "Write docs", models.TaskStatusPending, nil)
+		id := testutil.MustCreateTask(t, svc, "Write docs", models.TaskStatusPending, nil)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+id+"/assign", nil)
 		req.Header.Set("Content-Type", "application/json")
@@ -429,7 +355,7 @@ func TestAssignTask_HTTPValidation(t *testing.T) {
 		r.ServeHTTP(rec, req)
 
 		assertError(t, rec, http.StatusBadRequest, "VALIDATION_ERROR")
-		if calls := n.recorded(); len(calls) != 0 {
+		if calls := n.Recorded(); len(calls) != 0 {
 			t.Errorf("notifier called %d times, want 0", len(calls))
 		}
 	})
@@ -437,23 +363,23 @@ func TestAssignTask_HTTPValidation(t *testing.T) {
 
 func TestAssignTask_HTTPNotFound(t *testing.T) {
 	r, svc, n := newTestRouter()
-	mustCreateTask(t, svc, "existing", models.TaskStatusPending, nil)
+	testutil.MustCreateTask(t, svc, "existing", models.TaskStatusPending, nil)
 
 	rec := doRequest(r, http.MethodPost, "/api/v1/tasks/missing-id/assign", `{"assigned_to":"alice@example.com"}`)
 	resp := assertError(t, rec, http.StatusNotFound, "NOT_FOUND")
 	if want := "task with ID missing-id not found"; resp.Error.Message != want {
 		t.Errorf("error message = %q, want %q", resp.Error.Message, want)
 	}
-	if calls := n.recorded(); len(calls) != 0 {
+	if calls := n.Recorded(); len(calls) != 0 {
 		t.Errorf("notifier called %d times, want 0", len(calls))
 	}
 }
 
 func TestExistingRoutes_Smoke(t *testing.T) {
 	r, svc, _ := newTestRouter()
-	mustCreateTask(t, svc, "pending", models.TaskStatusPending, nil)
-	mustCreateTask(t, svc, "in progress", models.TaskStatusInProgress, nil)
-	mustCreateTask(t, svc, "completed", models.TaskStatusCompleted, nil)
+	testutil.MustCreateTask(t, svc, "pending", models.TaskStatusPending, nil)
+	testutil.MustCreateTask(t, svc, "in progress", models.TaskStatusInProgress, nil)
+	testutil.MustCreateTask(t, svc, "completed", models.TaskStatusCompleted, nil)
 
 	t.Run("GET /api/v1/tasks", func(t *testing.T) {
 		rec := doRequest(r, http.MethodGet, "/api/v1/tasks", "")

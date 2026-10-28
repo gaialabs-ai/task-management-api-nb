@@ -16,10 +16,12 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── notifications/            # Notifier interface and default LogNotifier
 │   │   ├── notifier.go
 │   │   └── notifier_test.go
-│   └── services/                 # Business logic (in-memory storage)
-│       ├── comment_service.go
-│       ├── task_service.go
-│       └── task_service_test.go
+│   ├── services/                 # Business logic (in-memory storage)
+│   │   ├── comment_service.go
+│   │   ├── task_service.go
+│   │   └── task_service_test.go
+│   └── testutil/                 # Shared test helpers (frozen clock, recording notifier)
+│       └── testutil.go
 ├── rest/                         # REST API implementation
 │   └── server/                   # HTTP handlers and routing
 │       ├── handlers.go
