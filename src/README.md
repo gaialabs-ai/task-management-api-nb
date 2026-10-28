@@ -284,7 +284,7 @@ Sample response:
 When nothing is overdue:
 ```json
 {
-  "tasks": null,
+  "tasks": [],
   "total_count": 0
 }
 ```
