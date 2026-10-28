@@ -205,3 +205,19 @@ class TestOverdueRouting:
         assert "error" not in body
         assert "tasks" in body and "total_count" in body
         assert "id" not in body
+
+
+class TestOverdueNegativePageToken:
+    def test_overdue_negative_page_token_returns_first_page(self, tasks):
+        """A negative page_token is ignored (documented, intentional): first page, no 500."""
+        now = datetime.now(timezone.utc)
+        for i in range(3):
+            due = (now - timedelta(days=10 - i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            tasks.create("negtok_%d" % i, due_date=due)
+        first = requests.get(OVERDUE, params={"page_size": 2}, timeout=TIMEOUT).json()
+        resp = record(requests.get(OVERDUE, params={"page_size": 2, "page_token": "-1"}, timeout=TIMEOUT))
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["total_count"] == 3
+        assert [t["id"] for t in body["tasks"]] == [t["id"] for t in first["tasks"]]
+        assert body["next_page_token"] == "2"
