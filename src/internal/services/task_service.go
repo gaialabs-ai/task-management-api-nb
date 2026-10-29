@@ -137,7 +137,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 
 // paginate applies offset-based pagination to tasks. pageSize defaults to 20
 // when non-positive and is clamped to 100; pageToken is the decimal start
-// offset (ignored when not a number). The returned tasks are value copies, so
+// offset (ignored when not a non-negative number). The returned tasks are value copies, so
 // callers holding the service lock get a snapshot that is safe to use after
 // the lock is released.
 func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.ListTasksResponse {
@@ -151,7 +151,7 @@ func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.List
 
 	startIndex := 0
 	if pageToken != "" {
-		if idx, err := strconv.Atoi(pageToken); err == nil {
+		if idx, err := strconv.Atoi(pageToken); err == nil && idx >= 0 {
 			startIndex = idx
 		}
 	}

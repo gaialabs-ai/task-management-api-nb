@@ -197,6 +197,7 @@ func TestPaginate(t *testing.T) {
 		{name: "page size equal to total", total: 5, pageSize: 5, wantStart: 0, wantLen: 5, wantNextToken: ""},
 		{name: "explicit zero token", total: 5, pageSize: 2, pageToken: "0", wantStart: 0, wantLen: 2, wantNextToken: "2"},
 		{name: "non-numeric token treated as zero", total: 5, pageSize: 2, pageToken: "abc", wantStart: 0, wantLen: 2, wantNextToken: "2"},
+		{name: "negative token treated as zero", total: 5, pageSize: 2, pageToken: "-1", wantStart: 0, wantLen: 2, wantNextToken: "2"},
 		{name: "token equal to total", total: 5, pageSize: 2, pageToken: "5", wantLen: 0, wantNextToken: ""},
 		{name: "token past end", total: 5, pageSize: 2, pageToken: "50", wantLen: 0, wantNextToken: ""},
 		{name: "empty input", total: 0, pageSize: 20, wantLen: 0, wantNextToken: ""},
