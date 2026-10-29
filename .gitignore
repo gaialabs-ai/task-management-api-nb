@@ -1,0 +1,20 @@
+# Go build output
+bin/
+*.exe
+*.test
+*.out
+coverage.*
+/src/rest-server
+
+# Python / pytest (functional testing)
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
