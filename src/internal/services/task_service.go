@@ -1,7 +1,9 @@
 package services
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,22 +11,99 @@ import (
 	"time"
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
+	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/notifications"
 	"github.com/google/uuid"
 )
 
+// ErrTaskNotFound is matched (via errors.Is) by errors returned when a task does not exist.
+// The error message itself keeps the "task with ID %s not found" format.
+var ErrTaskNotFound = errors.New("task not found")
+
+// notFoundError reports a missing task while preserving the existing message format
+type notFoundError struct {
+	id string
+}
+
+func (e *notFoundError) Error() string {
+	return fmt.Sprintf("task with ID %s not found", e.id)
+}
+
+// Is reports whether target is ErrTaskNotFound
+func (e *notFoundError) Is(target error) bool {
+	return target == ErrTaskNotFound
+}
+
 // TaskService provides task management operations
 type TaskService struct {
-	mu    sync.RWMutex
-	tasks map[string]*models.Task
+	mu       sync.RWMutex
+	tasks    map[string]*models.Task
+	now      func() time.Time
+	notifier notifications.Notifier
+
+	// skipSampleData is a construction-only flag set by WithoutSampleData
+	skipSampleData bool
+}
+
+// Option configures a TaskService created with NewTaskServiceWithOptions
+type Option func(*TaskService)
+
+// WithClock overrides the clock used by the service. A nil fn keeps the default (time.Now).
+func WithClock(fn func() time.Time) Option {
+	return func(s *TaskService) {
+		if fn != nil {
+			s.now = fn
+		}
+	}
+}
+
+// WithNotifier overrides the assignment notifier. A nil n keeps the default (LogNotifier).
+func WithNotifier(n notifications.Notifier) Option {
+	return func(s *TaskService) {
+		if n != nil {
+			s.notifier = n
+		}
+	}
+}
+
+// WithoutSampleData creates the service with an empty task store
+func WithoutSampleData() Option {
+	return func(s *TaskService) {
+		s.skipSampleData = true
+	}
 }
 
 // NewTaskService creates a new task service instance
 func NewTaskService() *TaskService {
+	return NewTaskServiceWithOptions()
+}
+
+// NewTaskServiceWithOptions creates a new task service instance configured by opts.
+// Sample data is seeded unless WithoutSampleData is given.
+func NewTaskServiceWithOptions(opts ...Option) *TaskService {
 	s := &TaskService{
-		tasks: make(map[string]*models.Task),
+		tasks:    make(map[string]*models.Task),
+		now:      time.Now,
+		notifier: notifications.NewLogNotifier(),
 	}
-	s.initializeSampleData()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	if !s.skipSampleData {
+		s.initializeSampleData()
+	}
 	return s
+}
+
+// SetNotifier replaces the assignment notifier. A nil n is ignored.
+func (s *TaskService) SetNotifier(n notifications.Notifier) {
+	if n == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifier = n
 }
 
 // initializeSampleData creates some sample tasks
@@ -67,8 +146,13 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
+	return paginate(tasks, query.PageSize, query.PageToken), nil
+}
+
+// paginate applies offset-based pagination to tasks. The page size defaults to 20
+// and is clamped to 100; the page token is the start offset of the page.
+func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.ListTasksResponse {
 	totalCount := len(tasks)
-	pageSize := query.PageSize
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -77,8 +161,8 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	}
 
 	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
+	if pageToken != "" {
+		if idx, err := strconv.Atoi(pageToken); err == nil {
 			startIndex = idx
 		}
 	}
@@ -104,7 +188,86 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		Tasks:         paginatedTasks,
 		NextPageToken: nextPageToken,
 		TotalCount:    totalCount,
-	}, nil
+	}
+}
+
+// ListOverdueTasks returns a paginated list of overdue tasks: tasks with a due date
+// strictly before the current time whose status is neither completed nor cancelled.
+// Results are ordered by due date ascending, with the task ID as a tiebreaker.
+func (s *TaskService) ListOverdueTasks(query models.ListOverdueTasksQuery) (*models.ListTasksResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+
+	var tasks []*models.Task
+	for _, task := range s.tasks {
+		if task.DueDate == nil || !task.DueDate.Before(now) {
+			continue
+		}
+		if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusCancelled {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+
+	sort.Slice(tasks, func(i, j int) bool {
+		if !tasks[i].DueDate.Equal(*tasks[j].DueDate) {
+			return tasks[i].DueDate.Before(*tasks[j].DueDate)
+		}
+		return tasks[i].ID < tasks[j].ID
+	})
+
+	return paginate(tasks, query.PageSize, query.PageToken), nil
+}
+
+// AssignTask assigns a task to the given email address and sends an assignment
+// notification. A notification failure is logged and does not undo the assignment.
+func (s *TaskService) AssignTask(id, email string) (*models.Task, error) {
+	email = strings.TrimSpace(email)
+
+	s.mu.Lock()
+	task, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, &notFoundError{id: id}
+	}
+
+	assignee := email
+	task.AssignedTo = &assignee
+	task.UpdatedAt = s.now()
+
+	taskCopy := copyTask(task)
+	notifier := s.notifier
+	s.mu.Unlock()
+
+	if err := notifier.NotifyAssignment(copyTask(&taskCopy), email); err != nil {
+		log.Printf("assignment notification for task %s failed: %v", id, err)
+	}
+
+	return &taskCopy, nil
+}
+
+// copyTask returns a copy of task that shares no mutable memory with the original
+func copyTask(task *models.Task) models.Task {
+	c := *task
+	if task.Tags != nil {
+		c.Tags = make([]string, len(task.Tags))
+		copy(c.Tags, task.Tags)
+	}
+	if task.AssignedTo != nil {
+		v := *task.AssignedTo
+		c.AssignedTo = &v
+	}
+	if task.DueDate != nil {
+		v := *task.DueDate
+		c.DueDate = &v
+	}
+	if task.CompletedAt != nil {
+		v := *task.CompletedAt
+		c.CompletedAt = &v
+	}
+	return c
 }
 
 // GetTask retrieves a task by ID
@@ -181,7 +344,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 			return nil, fmt.Errorf("invalid status: %s", *req.Status)
 		}
 		task.Status = *req.Status
-		
+
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := time.Now()
