@@ -232,7 +232,8 @@ func (s *TaskService) AssignTask(id, email string) (*models.Task, error) {
 
 	snapshot := *task
 	if task.Tags != nil {
-		snapshot.Tags = append([]string(nil), task.Tags...)
+		snapshot.Tags = make([]string, len(task.Tags))
+		copy(snapshot.Tags, task.Tags)
 	}
 	notifier := s.notifier
 	s.mu.Unlock()
