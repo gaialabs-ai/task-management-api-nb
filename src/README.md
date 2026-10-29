@@ -63,11 +63,13 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (due date in the past, status not `completed`/`cancelled`), sorted by due date ascending
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email and send a notification
 
 ## Task Model
 
@@ -175,3 +177,27 @@ Common error codes:
 - `VALIDATION_ERROR` - Invalid input data
 - `NOT_FOUND` - Resource not found
 - `INTERNAL_ERROR` - Server error
+
+## Overdue Tasks
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+Returns `{"tasks": [...], "next_page_token": "10", "total_count": 25}`. Tasks are ordered by `due_date` ascending (ties by task ID). `page_size` (1-100, default 20) and `page_token` work as on `GET /api/v1/tasks`. Errors: `400 VALIDATION_ERROR` for an invalid `page_size`.
+
+## Assigning Tasks
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Returns `200` with the updated task. `assigned_to` must be a bare email address (no display name). Errors use the standard error shape: `400 VALIDATION_ERROR` for a missing/invalid email or malformed body, `404 NOT_FOUND` for an unknown task.
+
+On assignment the service calls a `Notifier` (`services.Notifier`); the default implementation only logs. A notification failure is logged and does not fail the request. No assignment notification existed before, so this minimal notifier should be confirmed with the project owner.
+
+## Testing
+
+From `src/`: `go vet ./... && go test -race ./...`. Tests build the router with `server.NewHandler` and `RegisterRoutes` and do not need the workstation license.
