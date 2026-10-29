@@ -43,10 +43,12 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 			tasks.GET("", h.listTasks)
 			tasks.GET("/search", h.searchTasks)
 			tasks.GET("/stats", h.getTaskStats)
+			tasks.GET("/overdue", h.listOverdueTasks)
 			tasks.GET("/:id", h.getTask)
 			tasks.POST("", h.createTask)
 			tasks.PUT("/:id", h.updateTask)
 			tasks.PATCH("/:id/status", h.updateTaskStatus)
+			tasks.POST("/:id/assign", h.assignTask)
 			tasks.DELETE("/:id", h.deleteTask)
 
 			tasks.GET("/:id/comments", h.listComments)
@@ -140,6 +142,33 @@ func (h *Handler) searchTasks(c *gin.Context) {
 func (h *Handler) getTaskStats(c *gin.Context) {
 	stats := h.taskService.GetStats()
 	c.JSON(http.StatusOK, stats)
+}
+
+// listOverdueTasks handles GET /tasks/overdue
+func (h *Handler) listOverdueTasks(c *gin.Context) {
+	var query models.ListOverdueTasksQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	response, err := h.taskService.ListOverdueTasks(query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "INTERNAL_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // getTask handles GET /tasks/:id
@@ -259,6 +288,43 @@ func (h *Handler) updateTaskStatus(c *gin.Context) {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
 		
+		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+
+		c.JSON(status, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    code,
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
+}
+
+// assignTask handles POST /tasks/:id/assign
+func (h *Handler) assignTask(c *gin.Context) {
+	id := c.Param("id")
+
+	var req models.AssignTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	task, err := h.taskService.AssignTask(id, req.AssignedTo)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+
 		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
