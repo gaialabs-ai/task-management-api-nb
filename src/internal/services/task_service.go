@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,22 +10,86 @@ import (
 	"time"
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
+	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/notifications"
 	"github.com/google/uuid"
 )
 
 // TaskService provides task management operations
 type TaskService struct {
-	mu    sync.RWMutex
-	tasks map[string]*models.Task
+	mu       sync.RWMutex
+	tasks    map[string]*models.Task
+	now      func() time.Time
+	notifier notifications.Notifier
+
+	// skipSampleData is a construction-time flag set by WithoutSampleData.
+	skipSampleData bool
 }
 
-// NewTaskService creates a new task service instance
-func NewTaskService() *TaskService {
-	s := &TaskService{
-		tasks: make(map[string]*models.Task),
+// Option configures a TaskService created by NewTaskServiceWithOptions.
+type Option func(*TaskService)
+
+// WithClock sets the clock used for timestamps and overdue checks.
+// A nil clock is ignored.
+func WithClock(now func() time.Time) Option {
+	return func(s *TaskService) {
+		if now != nil {
+			s.now = now
+		}
 	}
-	s.initializeSampleData()
+}
+
+// WithNotifier sets the notifier used when tasks are assigned.
+// A nil notifier is ignored.
+func WithNotifier(n notifications.Notifier) Option {
+	return func(s *TaskService) {
+		if n != nil {
+			s.notifier = n
+		}
+	}
+}
+
+// WithoutSampleData creates the service with an empty task store.
+func WithoutSampleData() Option {
+	return func(s *TaskService) {
+		s.skipSampleData = true
+	}
+}
+
+// NewTaskService creates a new task service instance seeded with sample data
+func NewTaskService() *TaskService {
+	return NewTaskServiceWithOptions()
+}
+
+// NewTaskServiceWithOptions creates a new task service instance configured by
+// the given options. Unless WithoutSampleData is supplied, the service is
+// seeded with sample data. The default clock is time.Now and the default
+// notifier is a LogNotifier.
+func NewTaskServiceWithOptions(opts ...Option) *TaskService {
+	s := &TaskService{
+		tasks:    make(map[string]*models.Task),
+		now:      time.Now,
+		notifier: notifications.NewLogNotifier(),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	if !s.skipSampleData {
+		s.initializeSampleData()
+	}
 	return s
+}
+
+// SetNotifier replaces the notifier used when tasks are assigned.
+// A nil notifier is ignored.
+func (s *TaskService) SetNotifier(n notifications.Notifier) {
+	if n == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifier = n
 }
 
 // initializeSampleData creates some sample tasks
@@ -67,8 +132,16 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
+	return paginate(tasks, query.PageSize, query.PageToken), nil
+}
+
+// paginate applies offset-based pagination to tasks. pageSize defaults to 20
+// when non-positive and is clamped to 100; pageToken is the decimal start
+// offset (ignored when not a number). The returned tasks are value copies, so
+// callers holding the service lock get a snapshot that is safe to use after
+// the lock is released.
+func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.ListTasksResponse {
 	totalCount := len(tasks)
-	pageSize := query.PageSize
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -77,8 +150,8 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	}
 
 	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
+	if pageToken != "" {
+		if idx, err := strconv.Atoi(pageToken); err == nil {
 			startIndex = idx
 		}
 	}
@@ -104,7 +177,73 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		Tasks:         paginatedTasks,
 		NextPageToken: nextPageToken,
 		TotalCount:    totalCount,
-	}, nil
+	}
+}
+
+// ListOverdueTasks returns a paginated list of overdue tasks. A task is overdue
+// when it has a due date strictly before the current time and its status is
+// neither completed nor cancelled. Results are ordered by due date ascending,
+// with the task ID as a tiebreaker.
+func (s *TaskService) ListOverdueTasks(query models.ListOverdueTasksQuery) (*models.ListTasksResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+
+	var overdue []*models.Task
+	for _, task := range s.tasks {
+		if task.DueDate == nil || !task.DueDate.Before(now) {
+			continue
+		}
+		if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusCancelled {
+			continue
+		}
+		overdue = append(overdue, task)
+	}
+
+	sort.Slice(overdue, func(i, j int) bool {
+		di, dj := *overdue[i].DueDate, *overdue[j].DueDate
+		if !di.Equal(dj) {
+			return di.Before(dj)
+		}
+		return overdue[i].ID < overdue[j].ID
+	})
+
+	return paginate(overdue, query.PageSize, query.PageToken), nil
+}
+
+// AssignTask assigns a task to the user with the given email address and
+// sends an assignment notification. The email is trimmed of surrounding
+// whitespace. A notification failure is logged but does not undo the
+// assignment. The returned task is a snapshot copy.
+func (s *TaskService) AssignTask(id, email string) (*models.Task, error) {
+	email = strings.TrimSpace(email)
+
+	s.mu.Lock()
+	task, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task with ID %s not found", id)
+	}
+
+	assignee := email
+	task.AssignedTo = &assignee
+	task.UpdatedAt = s.now()
+
+	snapshot := *task
+	if task.Tags != nil {
+		snapshot.Tags = append([]string(nil), task.Tags...)
+	}
+	notifier := s.notifier
+	s.mu.Unlock()
+
+	if notifier != nil {
+		if err := notifier.NotifyAssignment(snapshot, email); err != nil {
+			log.Printf("assignment notification for task %s failed: %v", snapshot.ID, err)
+		}
+	}
+
+	return &snapshot, nil
 }
 
 // GetTask retrieves a task by ID
@@ -125,7 +264,7 @@ func (s *TaskService) CreateTask(req models.CreateTaskRequest) (*models.Task, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now()
+	now := s.now()
 	task := &models.Task{
 		ID:          uuid.New().String(),
 		Title:       req.Title,
@@ -184,7 +323,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 		
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
-			now := time.Now()
+			now := s.now()
 			task.CompletedAt = &now
 		}
 	}
@@ -204,7 +343,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 		task.DueDate = req.DueDate
 	}
 
-	task.UpdatedAt = time.Now()
+	task.UpdatedAt = s.now()
 	return task, nil
 }
 
