@@ -2,8 +2,10 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"sort"
-	"strconv"
+	"net/mail"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -14,17 +16,43 @@ import (
 
 // TaskService provides task management operations
 type TaskService struct {
-	mu    sync.RWMutex
-	tasks map[string]*models.Task
+	mu       sync.RWMutex
+	tasks    map[string]*models.Task
+	now      func() time.Time
+	notifier Notifier
 }
 
 // NewTaskService creates a new task service instance
 func NewTaskService() *TaskService {
 	s := &TaskService{
-		tasks: make(map[string]*models.Task),
+		tasks:    make(map[string]*models.Task),
+		now:      time.Now,
+		notifier: LogNotifier{},
 	}
 	s.initializeSampleData()
 	return s
+}
+
+// SetClock replaces the clock used for overdue checks and assignment
+// timestamps. A nil clock restores time.Now.
+func (s *TaskService) SetClock(clock func() time.Time) {
+	if clock == nil {
+		clock = time.Now
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.now = clock
+}
+
+// SetNotifier replaces the assignment notifier. A nil notifier restores the
+// logging default.
+func (s *TaskService) SetNotifier(n Notifier) {
+	if n == nil {
+		n = LogNotifier{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifier = n
 }
 
 // initializeSampleData creates some sample tasks
@@ -67,46 +95,26 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
+	return buildListResponse(tasks, query.PageSize, query.PageToken), nil
+}
+
+// buildListResponse paginates tasks and builds the response. Callers must hold
+// the lock that protects the underlying tasks.
+func buildListResponse(tasks []*models.Task, pageSize int, pageToken string) *models.ListTasksResponse {
 	totalCount := len(tasks)
-	pageSize := query.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-
-	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
-			startIndex = idx
-		}
-	}
-
-	endIndex := startIndex + pageSize
-	if endIndex > totalCount {
-		endIndex = totalCount
-	}
+	start, end, next := paginate(totalCount, pageSize, pageToken)
 
 	var paginatedTasks []models.Task
-	if startIndex < totalCount {
-		for _, task := range tasks[startIndex:endIndex] {
-			paginatedTasks = append(paginatedTasks, *task)
-		}
-	}
-
-	var nextPageToken string
-	if endIndex < totalCount {
-		nextPageToken = strconv.Itoa(endIndex)
+	for _, task := range tasks[start:end] {
+		paginatedTasks = append(paginatedTasks, *task)
 	}
 
 	return &models.ListTasksResponse{
 		Tasks:         paginatedTasks,
-		NextPageToken: nextPageToken,
+		NextPageToken: next,
 		TotalCount:    totalCount,
-	}, nil
+	}
 }
-
 // GetTask retrieves a task by ID
 func (s *TaskService) GetTask(id string) (*models.Task, error) {
 	s.mu.RLock()
@@ -403,4 +411,79 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 			return tasks[i].Priority.GetValue() > tasks[j].Priority.GetValue()
 		})
 	}
+}
+
+// ListOverdueTasks returns tasks whose due date is before the service clock's
+// current time and whose status is neither completed nor cancelled, sorted by
+// due date ascending (ties broken by CreatedAt, then ID). The assigned_to and
+// tags filters of the query apply; status and sort_order are ignored.
+func (s *TaskService) ListOverdueTasks(query models.ListTasksQuery) (*models.ListTasksResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+	var overdue []*models.Task
+	for _, task := range s.tasks {
+		if task.DueDate == nil || !task.DueDate.Before(now) {
+			continue
+		}
+		if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusCancelled {
+			continue
+		}
+		overdue = append(overdue, task)
+	}
+
+	query.Status = ""
+	overdue = s.filterTasks(overdue, query)
+
+	sort.Slice(overdue, func(i, j int) bool {
+		a, b := overdue[i], overdue[j]
+		if !a.DueDate.Equal(*b.DueDate) {
+			return a.DueDate.Before(*b.DueDate)
+		}
+		if !a.CreatedAt.Equal(b.CreatedAt) {
+			return a.CreatedAt.Before(b.CreatedAt)
+		}
+		return a.ID < b.ID
+	})
+
+	return buildListResponse(overdue, query.PageSize, query.PageToken), nil
+}
+
+// AssignTask assigns a task to the given bare email address and notifies the
+// notifier after the lock has been released. Notifier failures are logged and
+// do not fail the assignment. It returns a copy of the updated task.
+func (s *TaskService) AssignTask(id, email string) (*models.Task, error) {
+	trimmed := strings.TrimSpace(email)
+	if trimmed == "" {
+		return nil, fmt.Errorf("%w: assignee must not be empty", ErrInvalidEmail)
+	}
+	parsed, err := mail.ParseAddress(trimmed)
+	if err != nil || parsed.Address != trimmed {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidEmail, trimmed)
+	}
+
+	s.mu.Lock()
+	task, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, &TaskNotFoundError{ID: id}
+	}
+	assignee := trimmed
+	task.AssignedTo = &assignee
+	task.UpdatedAt = s.now()
+	snapshot := *task
+	notifier := s.notifier
+	s.mu.Unlock()
+
+	if nerr := notifier.Notify(snapshot, trimmed); nerr != nil {
+		log.Printf("failed to send assignment notification for task %s: %v", id, nerr)
+	}
+	return &snapshot, nil
+}
+
+// IsNotFound reports whether err is a task-not-found error.
+func IsNotFound(err error) bool {
+	var nf *TaskNotFoundError
+	return errors.As(err, &nf)
 }
