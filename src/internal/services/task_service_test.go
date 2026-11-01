@@ -2,23 +2,15 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
+	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/testutil"
 )
 
 var fixedNow = time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
-
-type fakeNotifier struct {
-	calls []string
-	err   error
-}
-
-func (f *fakeNotifier) NotifyAssigned(task models.Task, assignee string) error {
-	f.calls = append(f.calls, task.ID+"|"+assignee)
-	return f.err
-}
 
 // newEmptyService returns a service with no sample data and a fixed clock.
 func newEmptyService() *TaskService {
@@ -171,7 +163,7 @@ func TestAssignTask(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newEmptyService()
-			n := &fakeNotifier{}
+			n := &testutil.FakeNotifier{}
 			s.SetNotifier(n)
 			task := addTask(t, s, "x", nil, "")
 			id := task.ID
@@ -193,38 +185,28 @@ func TestAssignTask(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got.AssignedTo == nil || *got.AssignedTo != trim(tt.assignee) {
+				if got.AssignedTo == nil || *got.AssignedTo != strings.TrimSpace(tt.assignee) {
 					t.Errorf("assigned_to = %v", got.AssignedTo)
 				}
 				stored, _ := s.GetTask(task.ID)
-				if stored.AssignedTo == nil || *stored.AssignedTo != trim(tt.assignee) {
+				if stored.AssignedTo == nil || *stored.AssignedTo != strings.TrimSpace(tt.assignee) {
 					t.Errorf("not persisted")
 				}
-				if len(n.calls) != 1 {
-					t.Errorf("notifier calls = %v", n.calls)
+				if len(n.Calls) != 1 {
+					t.Errorf("notifier calls = %v", n.Calls)
 				}
 				return
 			}
-			if len(n.calls) != 0 {
-				t.Errorf("notifier should not be called: %v", n.calls)
+			if len(n.Calls) != 0 {
+				t.Errorf("notifier should not be called: %v", n.Calls)
 			}
 		})
 	}
 }
 
-func trim(s string) string {
-	for len(s) > 0 && s[0] == ' ' {
-		s = s[1:]
-	}
-	for len(s) > 0 && s[len(s)-1] == ' ' {
-		s = s[:len(s)-1]
-	}
-	return s
-}
-
 func TestAssignTaskNotifierFailureIgnored(t *testing.T) {
 	s := newEmptyService()
-	s.SetNotifier(&fakeNotifier{err: errors.New("smtp down")})
+	s.SetNotifier(&testutil.FakeNotifier{Err: errors.New("smtp down")})
 	task := addTask(t, s, "x", nil, "")
 	got, err := s.AssignTask(task.ID, "a@example.com")
 	if err != nil || got == nil {

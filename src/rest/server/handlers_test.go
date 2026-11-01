@@ -12,28 +12,19 @@ import (
 
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/models"
 	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/services"
+	"github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go/internal/testutil"
 	"github.com/gin-gonic/gin"
 )
 
 var fixedNow = time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 
-type fakeNotifier struct {
-	calls []string
-	err   error
-}
-
-func (f *fakeNotifier) NotifyAssigned(task models.Task, assignee string) error {
-	f.calls = append(f.calls, task.ID+"|"+assignee)
-	return f.err
-}
-
 // newTestRouter builds a fresh engine with sample data and a fixed clock.
-func newTestRouter(t *testing.T) (*gin.Engine, *services.TaskService, *fakeNotifier) {
+func newTestRouter(t *testing.T) (*gin.Engine, *services.TaskService, *testutil.FakeNotifier) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := services.NewTaskService()
 	svc.SetClock(func() time.Time { return fixedNow })
-	n := &fakeNotifier{}
+	n := &testutil.FakeNotifier{}
 	svc.SetNotifier(n)
 	r := gin.New()
 	NewHandler(svc).RegisterRoutes(r)
@@ -187,15 +178,15 @@ func TestAssignEndpoint(t *testing.T) {
 		if got.AssignedTo == nil || *got.AssignedTo != "alice@example.com" {
 			t.Fatalf("body: %s", w.Body)
 		}
-		if len(n.calls) != 1 || n.calls[0] != task.ID+"|alice@example.com" {
-			t.Fatalf("notifier calls: %v", n.calls)
+		if len(n.Calls) != 1 || n.Calls[0] != task.ID+"|alice@example.com" {
+			t.Fatalf("notifier calls: %v", n.Calls)
 		}
 	})
 
 	t.Run("invalid email", func(t *testing.T) {
-		before := len(n.calls)
+		before := len(n.Calls)
 		assertError(t, do(r, "POST", path, map[string]string{"assigned_to": "nope"}), 400, "VALIDATION_ERROR")
-		if len(n.calls) != before {
+		if len(n.Calls) != before {
 			t.Error("notifier called on invalid email")
 		}
 	})
@@ -209,7 +200,7 @@ func TestAssignEndpoint(t *testing.T) {
 	})
 
 	t.Run("notifier failure does not fail request", func(t *testing.T) {
-		n.err = errors.New("boom")
+		n.Err = errors.New("boom")
 		w := do(r, "POST", path, map[string]string{"assigned_to": "bob@example.com"})
 		if w.Code != http.StatusOK {
 			t.Fatalf("%d %s", w.Code, w.Body)
