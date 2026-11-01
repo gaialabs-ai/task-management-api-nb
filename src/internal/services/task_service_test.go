@@ -160,7 +160,6 @@ func TestAssignTask(t *testing.T) {
 		assignee string
 		unknown  bool
 		wantErr  error
-		notNotFn bool
 	}{
 		{name: "success", assignee: "alice@example.com"},
 		{name: "trimmed", assignee: "  bob@example.com "},
