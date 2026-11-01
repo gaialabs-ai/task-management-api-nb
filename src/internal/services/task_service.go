@@ -232,7 +232,7 @@ func (s *TaskService) GetTask(id string) (*models.Task, error) {
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, &TaskNotFoundError{ID: id}
 	}
 
 	return task, nil
@@ -284,7 +284,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 
 	task, exists := s.tasks[id]
 	if !exists {
-		return nil, fmt.Errorf("task with ID %s not found", id)
+		return nil, &TaskNotFoundError{ID: id}
 	}
 
 	// Update fields if provided
@@ -428,7 +428,7 @@ func (s *TaskService) DeleteTask(id string) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.tasks[id]; !exists {
-		return fmt.Errorf("task with ID %s not found", id)
+		return &TaskNotFoundError{ID: id}
 	}
 
 	delete(s.tasks, id)
