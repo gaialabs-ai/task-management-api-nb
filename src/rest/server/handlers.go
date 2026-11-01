@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -43,10 +44,12 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 			tasks.GET("", h.listTasks)
 			tasks.GET("/search", h.searchTasks)
 			tasks.GET("/stats", h.getTaskStats)
+			tasks.GET("/overdue", h.listOverdueTasks)
 			tasks.GET("/:id", h.getTask)
 			tasks.POST("", h.createTask)
 			tasks.PUT("/:id", h.updateTask)
 			tasks.PATCH("/:id/status", h.updateTaskStatus)
+			tasks.POST("/:id/assign", h.assignTask)
 			tasks.DELETE("/:id", h.deleteTask)
 
 			tasks.GET("/:id/comments", h.listComments)
@@ -358,4 +361,73 @@ func (h *Handler) deleteComment(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// listOverdueTasks handles GET /tasks/overdue
+func (h *Handler) listOverdueTasks(c *gin.Context) {
+	var query struct {
+		PageSize  int    `form:"page_size,default=20" binding:"min=1,max=100"`
+		PageToken string `form:"page_token"`
+	}
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	response, err := h.taskService.ListOverdueTasks(query.PageSize, query.PageToken)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "INTERNAL_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// assignTask handles POST /tasks/:id/assign
+func (h *Handler) assignTask(c *gin.Context) {
+	id := c.Param("id")
+
+	var req models.AssignTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    "VALIDATION_ERROR",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	task, err := h.taskService.AssignTask(id, req.AssignedTo)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+		switch {
+		case errors.Is(err, services.ErrInvalidEmail):
+			status = http.StatusBadRequest
+			code = "VALIDATION_ERROR"
+		case errors.Is(err, services.ErrTaskNotFound):
+			status = http.StatusNotFound
+			code = "NOT_FOUND"
+		}
+		c.JSON(status, models.ErrorResponse{
+			Error: models.ErrorDetail{
+				Code:    code,
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
 }

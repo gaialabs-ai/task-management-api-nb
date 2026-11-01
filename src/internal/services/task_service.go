@@ -14,14 +14,18 @@ import (
 
 // TaskService provides task management operations
 type TaskService struct {
-	mu    sync.RWMutex
-	tasks map[string]*models.Task
+	mu       sync.RWMutex
+	tasks    map[string]*models.Task
+	now      func() time.Time
+	notifier Notifier
 }
 
 // NewTaskService creates a new task service instance
 func NewTaskService() *TaskService {
 	s := &TaskService{
-		tasks: make(map[string]*models.Task),
+		tasks:    make(map[string]*models.Task),
+		now:      time.Now,
+		notifier: LogNotifier{},
 	}
 	s.initializeSampleData()
 	return s
@@ -67,8 +71,20 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
+	paginatedTasks, nextPageToken := paginate(tasks, query.PageSize, query.PageToken)
 	totalCount := len(tasks)
-	pageSize := query.PageSize
+
+	return &models.ListTasksResponse{
+		Tasks:         paginatedTasks,
+		NextPageToken: nextPageToken,
+		TotalCount:    totalCount,
+	}, nil
+}
+
+// paginate applies the shared page_size/page_token offset logic to tasks and
+// returns the requested page plus the token for the next page ("" if none).
+func paginate(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {
+	totalCount := len(tasks)
 	if pageSize <= 0 {
 		pageSize = 20
 	}
@@ -77,8 +93,8 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	}
 
 	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
+	if pageToken != "" {
+		if idx, err := strconv.Atoi(pageToken); err == nil {
 			startIndex = idx
 		}
 	}
@@ -88,10 +104,10 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		endIndex = totalCount
 	}
 
-	var paginatedTasks []models.Task
-	if startIndex < totalCount {
+	var page []models.Task
+	if startIndex >= 0 && startIndex < totalCount {
 		for _, task := range tasks[startIndex:endIndex] {
-			paginatedTasks = append(paginatedTasks, *task)
+			page = append(page, *task)
 		}
 	}
 
@@ -99,12 +115,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	if endIndex < totalCount {
 		nextPageToken = strconv.Itoa(endIndex)
 	}
-
-	return &models.ListTasksResponse{
-		Tasks:         paginatedTasks,
-		NextPageToken: nextPageToken,
-		TotalCount:    totalCount,
-	}, nil
+	return page, nextPageToken
 }
 
 // GetTask retrieves a task by ID
