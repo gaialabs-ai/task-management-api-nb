@@ -9,3 +9,7 @@ __pycache__/
 .pytest_cache/
 *.pyc
 *.pyo
+
+# Functional-test run artifacts
+.mcode/**/pip/
+.mcode/**/last_responses.json
