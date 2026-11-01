@@ -224,7 +224,7 @@ func (s *TaskService) CreateTask(req models.CreateTaskRequest) (*models.Task, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now()
+	now := s.now()
 	task := &models.Task{
 		ID:          uuid.New().String(),
 		Title:       req.Title,
@@ -283,7 +283,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 		
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
-			now := time.Now()
+			now := s.now()
 			task.CompletedAt = &now
 		}
 	}
@@ -303,7 +303,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 		task.DueDate = req.DueDate
 	}
 
-	task.UpdatedAt = time.Now()
+	task.UpdatedAt = s.now()
 	return task, nil
 }
 
