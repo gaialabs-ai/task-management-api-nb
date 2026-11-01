@@ -63,7 +63,9 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see below)
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
@@ -139,6 +141,37 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+### List Overdue Tasks
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is in the past and whose status is neither `completed` nor `cancelled`, sorted by `due_date` ascending (ties broken by task ID). It supports `page_size` (1-100, default 20) and `page_token`, with the same response shape as `GET /api/v1/tasks` (`tasks`, `next_page_token`, `total_count`).
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+Errors: `400 VALIDATION_ERROR` for an invalid `page_size`.
+
+### Assign a Task
+`POST /api/v1/tasks/:id/assign` sets `assigned_to` to a bare email address (e.g. `alice@example.com`; display-name forms such as `Alice <alice@example.com>` are rejected) and returns the updated task.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Errors: `400 VALIDATION_ERROR` for a missing or invalid email, `404 NOT_FOUND` for an unknown task.
+
+On assignment a `Notifier` is called. The default implementation only writes a log line; a notification failure is logged and does not fail the request. No assignment notification existed before, so this minimal behavior should be confirmed with the project owner.
+
+## Testing
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+Tests build the router with `server.NewHandler` and `RegisterRoutes`, so they do not need the workstation license.
 
 ## Features
 
