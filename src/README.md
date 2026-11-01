@@ -128,6 +128,22 @@ curl http://localhost:8080/api/v1/tasks?status=pending
 curl http://localhost:8080/api/v1/tasks?page_size=10&sort_order=priority_desc
 ```
 
+### List Overdue Tasks
+Returns tasks whose `due_date` is in the past and whose status is neither `completed` nor `cancelled`, sorted by `due_date` ascending (ties broken by task ID). Supports `page_size` and `page_token`, same as `GET /api/v1/tasks`.
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+Response: `{"tasks": [...], "next_page_token": "10", "total_count": 23}`. Errors: `400 VALIDATION_ERROR` for a malformed query.
+
+### Assign a Task
+Assigns a task to an email address (a bare address such as `alice@example.com`; display names are rejected) and sends an assignment notification. The default notifier only logs the assignment, and a notification failure is logged without failing the request. No assignment notification existed before; this gap should be confirmed with the project owner.
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+Returns `200` with the updated task. Errors: `400 VALIDATION_ERROR` (missing or invalid email), `404 NOT_FOUND` (unknown task).
+
 ### Update Task Status
 ```bash
 curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
