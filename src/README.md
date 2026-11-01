@@ -13,10 +13,14 @@ A task management REST API built with Go and the Gin framework. This implementat
 │   ├── models/            # Data models and types
 │   │   └── task.go
 │   └── services/          # Business logic
-│       └── task_service.go
+│       ├── task_service.go
+│       ├── task_service_test.go
+│       ├── task_overdue_assign.go   # Overdue listing, assignment, Notifier
+│       └── comment_service.go
 ├── rest/                   # REST API implementation
 │   └── server/            # HTTP handlers and routing
-│       └── handlers.go
+│       ├── handlers.go
+│       └── handlers_test.go
 ├── go.mod                  # Go module definition
 └── README.md
 ```
@@ -68,6 +72,49 @@ PORT=3000 go run cmd/rest-server/main.go
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see below)
+
+### Overdue Tasks
+
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is in the past and whose status is neither `completed` nor `cancelled`. Tasks without a due date, with a future due date, or due exactly now are excluded. Results are sorted by due date ascending, ties broken by task ID. Query params: `page_size` (1-100, default 20) and `page_token`. The route is registered before `/tasks/:id`, so `overdue` is never treated as a task ID.
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+Response (`200 OK`):
+```json
+{
+  "tasks": [ { "id": "...", "title": "...", "status": "pending", "due_date": "2024-01-01T00:00:00Z" } ],
+  "next_page_token": "10",
+  "total_count": 23
+}
+```
+`next_page_token` is omitted on the last page; pass it as `page_token` to fetch the next page. An invalid `page_size` returns `400` with `VALIDATION_ERROR`.
+
+### Assign a Task
+
+`POST /api/v1/tasks/:id/assign` sets `assigned_to` and notifies the assignee.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Request body: `{"assigned_to": "<email>"}` (required). The value must be a bare email address; display-name forms such as `Name <a@b.c>` are rejected. Surrounding whitespace is trimmed.
+
+Responses:
+- `200 OK` - the updated task, with `assigned_to` set
+- `400 Bad Request` (`VALIDATION_ERROR`) - malformed JSON, missing `assigned_to`, or invalid email
+- `404 Not Found` (`NOT_FOUND`) - unknown task ID
+
+```json
+{"error": {"code": "NOT_FOUND", "message": "task with ID abc not found: task not found"}}
+```
+
+**Notifier note:** the project had no assignment notification mechanism. A minimal `Notifier` interface (`NotifyAssigned(task, assignee) error`) and a default `LogNotifier` that only writes a log line were added. A notification failure is logged and does not fail the request. This design is to be confirmed with the project owner; replace the notifier with `TaskService.SetNotifier`.
 
 ## Task Model
 
@@ -139,6 +186,15 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+## Testing
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+Service tests (`internal/services/task_service_test.go`) use a fixed clock (`SetClock`) and a fake notifier (`SetNotifier`). Handler tests (`rest/server/handlers_test.go`) use `httptest` with a fresh gin engine per test, built via `server.NewHandler` and `RegisterRoutes`.
 
 ## Features
 
