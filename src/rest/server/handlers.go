@@ -131,10 +131,6 @@ func (h *Handler) listOverdueTasks(c *gin.Context) {
 		return
 	}
 
-	if query.PageSize == 0 {
-		query.PageSize = 20
-	}
-
 	response, err := h.taskService.ListOverdueTasks(query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
