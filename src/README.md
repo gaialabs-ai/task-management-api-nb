@@ -63,7 +63,9 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email (see below)
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
@@ -128,6 +130,36 @@ curl http://localhost:8080/api/v1/tasks?status=pending
 curl http://localhost:8080/api/v1/tasks?page_size=10&sort_order=priority_desc
 ```
 
+### List Overdue Tasks
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is in the past and whose status is neither `completed` nor `cancelled`, sorted by `due_date` ascending (ties broken by `created_at`, then `id`). Tasks without a due date are never overdue. Query params: `page_size` (1-100, default 20) and `page_token`, with the same semantics as `GET /api/v1/tasks`.
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+```json
+{
+  "tasks": [ { "id": "...", "title": "...", "status": "pending", "due_date": "2024-06-01T00:00:00Z" } ],
+  "next_page_token": "10",
+  "total_count": 12
+}
+```
+
+Errors: `400 VALIDATION_ERROR` for an invalid `page_size`.
+
+### Assign a Task
+`POST /api/v1/tasks/:id/assign` sets `assigned_to` to a bare email address (validated with `net/mail`; display-name forms such as `Bob <bob@example.com>` are rejected) and returns the updated task. A notification is sent through the `Notifier` interface (`services.Notifier`); the default implementation only writes a log line. A notification failure is logged and does not fail the request.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Errors: `400 VALIDATION_ERROR` (missing/malformed body or invalid email), `404 NOT_FOUND` (unknown task).
+
+> Note: no assignment notification existed before; the logging `Notifier` is a minimal placeholder that should be confirmed with the project owner.
+
 ### Update Task Status
 ```bash
 curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
@@ -139,6 +171,15 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+## Testing
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+Tests build the router with `server.NewHandler` and `RegisterRoutes`, so they do not need the workstation license.
 
 ## Features
 
