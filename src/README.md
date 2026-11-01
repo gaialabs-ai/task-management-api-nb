@@ -63,10 +63,12 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see below)
 - `DELETE /api/v1/tasks/:id` - Delete a task
 
 ## Task Model
@@ -139,6 +141,47 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+### List Overdue Tasks
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is in the past and whose status is neither `completed` nor `cancelled`, sorted by `due_date` ascending (ties broken by task ID). Tasks without a due date are never overdue. It accepts the same `page_size` (1-100, default 20) and `page_token` parameters as `GET /api/v1/tasks` and returns the same response shape.
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+```json
+{
+  "tasks": [{"id": "...", "title": "...", "status": "pending", "due_date": "2024-01-01T00:00:00Z"}],
+  "next_page_token": "10",
+  "total_count": 42
+}
+```
+
+Errors: `400 VALIDATION_ERROR` for invalid query parameters (e.g. `page_size` out of range).
+
+### Assign a Task
+`POST /api/v1/tasks/:id/assign` sets `assigned_to` to a bare email address (validated with Go's `net/mail`; display-name forms such as `Bob <bob@example.com>` are rejected) and returns the updated task. A notification is sent through the `Notifier` interface; the default implementation only logs the assignment, and a notification failure is logged without failing the request.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "bob@example.com"}'
+```
+
+Errors:
+- `400 VALIDATION_ERROR` - missing/malformed body or invalid email
+- `404 NOT_FOUND` - unknown task ID
+
+> Note: no assignment notification existed before this change, so the minimal logging `Notifier` was introduced. Whether a real delivery mechanism (email, webhook) is wanted should be confirmed with the project owner.
+
+## Testing
+
+```bash
+go vet ./...
+go test -race ./...
+```
+
+Tests build the router with `server.NewHandler` and `RegisterRoutes`, so they do not need the workstation license.
 
 ## Features
 

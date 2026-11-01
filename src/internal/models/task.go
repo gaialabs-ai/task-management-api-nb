@@ -92,6 +92,11 @@ type SearchTasksResponse struct {
 	Query      string `json:"query"`
 }
 
+// AssignTaskRequest represents a request to assign a task
+type AssignTaskRequest struct {
+	AssignedTo string `json:"assigned_to" binding:"required"`
+}
+
 // ListTasksQuery represents query parameters for listing tasks
 type ListTasksQuery struct {
 	PageSize   int        `form:"page_size,default=20" binding:"min=1,max=100"`
