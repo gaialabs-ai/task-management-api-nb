@@ -1,0 +1,11 @@
+bin/
+*.exe
+*.test
+*.out
+coverage.txt
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo

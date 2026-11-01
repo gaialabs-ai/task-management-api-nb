@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"log"
+	"net/mail"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,17 +16,141 @@ import (
 
 // TaskService provides task management operations
 type TaskService struct {
-	mu    sync.RWMutex
-	tasks map[string]*models.Task
+	mu       sync.RWMutex
+	tasks    map[string]*models.Task
+	now      func() time.Time
+	notifier Notifier
 }
 
-// NewTaskService creates a new task service instance
-func NewTaskService() *TaskService {
+// Option configures a TaskService
+type Option func(*TaskService)
+
+// WithClock sets the clock used for overdue calculations
+func WithClock(now func() time.Time) Option {
+	return func(s *TaskService) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
+
+// WithNotifier sets the notifier used for assignment notifications
+func WithNotifier(n Notifier) Option {
+	return func(s *TaskService) {
+		if n != nil {
+			s.notifier = n
+		}
+	}
+}
+
+// NewTaskService creates a new task service instance. Defaults: time.Now clock
+// and a logging notifier.
+func NewTaskService(opts ...Option) *TaskService {
 	s := &TaskService{
-		tasks: make(map[string]*models.Task),
+		tasks:    make(map[string]*models.Task),
+		now:      time.Now,
+		notifier: LogNotifier{},
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.initializeSampleData()
 	return s
+}
+
+// paginate applies page_size/page_token pagination to an ordered task slice.
+func paginate(tasks []*models.Task, pageSize int, pageToken string) *models.ListTasksResponse {
+	totalCount := len(tasks)
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	startIndex := 0
+	if pageToken != "" {
+		if idx, err := strconv.Atoi(pageToken); err == nil && idx > 0 {
+			startIndex = idx
+		}
+	}
+
+	endIndex := startIndex + pageSize
+	if endIndex > totalCount {
+		endIndex = totalCount
+	}
+
+	var paginatedTasks []models.Task
+	if startIndex < totalCount {
+		for _, task := range tasks[startIndex:endIndex] {
+			paginatedTasks = append(paginatedTasks, *task)
+		}
+	}
+
+	var nextPageToken string
+	if endIndex < totalCount {
+		nextPageToken = strconv.Itoa(endIndex)
+	}
+
+	return &models.ListTasksResponse{
+		Tasks:         paginatedTasks,
+		NextPageToken: nextPageToken,
+		TotalCount:    totalCount,
+	}
+}
+
+// ListOverdueTasks returns tasks whose due date is in the past and whose status
+// is neither completed nor cancelled, sorted by due date ascending.
+func (s *TaskService) ListOverdueTasks(query models.ListTasksQuery) (*models.ListTasksResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := s.now()
+	var overdue []*models.Task
+	for _, task := range s.tasks {
+		if task.DueDate == nil || !task.DueDate.Before(now) {
+			continue
+		}
+		if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusCancelled {
+			continue
+		}
+		overdue = append(overdue, task)
+	}
+
+	sort.SliceStable(overdue, func(i, j int) bool {
+		if overdue[i].DueDate.Equal(*overdue[j].DueDate) {
+			return overdue[i].ID < overdue[j].ID
+		}
+		return overdue[i].DueDate.Before(*overdue[j].DueDate)
+	})
+
+	return paginate(overdue, query.PageSize, query.PageToken), nil
+}
+
+// AssignTask assigns a task to the given email and notifies the assignee.
+// Notification failures are logged and do not fail the assignment.
+func (s *TaskService) AssignTask(id string, assignedTo string) (*models.Task, error) {
+	addr, err := mail.ParseAddress(assignedTo)
+	if err != nil || addr.Address != assignedTo {
+		return nil, fmt.Errorf("invalid email: %s", assignedTo)
+	}
+
+	s.mu.Lock()
+	task, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task with ID %s not found", id)
+	}
+	task.AssignedTo = &assignedTo
+	task.UpdatedAt = s.now()
+	updated := *task
+	s.mu.Unlock()
+
+	if err := s.notifier.NotifyAssignment(updated, assignedTo); err != nil {
+		log.Printf("failed to send assignment notification for task %s: %v", id, err)
+	}
+
+	return &updated, nil
 }
 
 // initializeSampleData creates some sample tasks
@@ -67,44 +193,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
-	totalCount := len(tasks)
-	pageSize := query.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-
-	startIndex := 0
-	if query.PageToken != "" {
-		if idx, err := strconv.Atoi(query.PageToken); err == nil {
-			startIndex = idx
-		}
-	}
-
-	endIndex := startIndex + pageSize
-	if endIndex > totalCount {
-		endIndex = totalCount
-	}
-
-	var paginatedTasks []models.Task
-	if startIndex < totalCount {
-		for _, task := range tasks[startIndex:endIndex] {
-			paginatedTasks = append(paginatedTasks, *task)
-		}
-	}
-
-	var nextPageToken string
-	if endIndex < totalCount {
-		nextPageToken = strconv.Itoa(endIndex)
-	}
-
-	return &models.ListTasksResponse{
-		Tasks:         paginatedTasks,
-		NextPageToken: nextPageToken,
-		TotalCount:    totalCount,
-	}, nil
+	return paginate(tasks, query.PageSize, query.PageToken), nil
 }
 
 // GetTask retrieves a task by ID
