@@ -190,6 +190,16 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	tasks = s.filterTasks(tasks, query)
 
 	// Apply sorting
+	if query.SortOrder == "" {
+		// Map iteration order is random; use a stable default so pagination
+		// tokens are consistent across pages.
+		sort.Slice(tasks, func(i, j int) bool {
+			if tasks[i].CreatedAt.Equal(tasks[j].CreatedAt) {
+				return tasks[i].ID < tasks[j].ID
+			}
+			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+		})
+	}
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
