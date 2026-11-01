@@ -107,7 +107,6 @@ func TestListTasksPagesAreContiguous(t *testing.T) {
 // fakeNotifier records calls and optionally fails.
 type fakeNotifier struct {
 	calls    []string
-	taskIDs  []string
 	err      error
 	service  *TaskService
 	lockFree bool
@@ -115,7 +114,6 @@ type fakeNotifier struct {
 
 func (f *fakeNotifier) Notify(task models.Task, assignee string) error {
 	f.calls = append(f.calls, assignee)
-	f.taskIDs = append(f.taskIDs, task.ID)
 	if f.service != nil {
 		// If the lock were still held this would deadlock; TryLock proves it is free.
 		if f.service.mu.TryLock() {
