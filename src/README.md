@@ -67,7 +67,13 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (due date in the past, status not `completed`/`cancelled`; tasks without a due date are excluded), sorted by due date ascending
+  - Query params: `page_size`, `page_token`
+  - Response: `{"tasks": [...], "next_page_token": "...", "total_count": N}`
 - `GET /api/v1/tasks/:id` - Get a specific task
+- `POST /api/v1/tasks/:id/assign` - Assign a task to a user by email and send an assignment notification
+  - Body: `{"assigned_to": "user@example.com"}`
+  - Returns `200` with the updated task, `400 VALIDATION_ERROR` for an invalid email, `404 NOT_FOUND` for an unknown task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
@@ -132,6 +138,27 @@ curl http://localhost:8080/api/v1/tasks?status=pending
 curl http://localhost:8080/api/v1/tasks?page_size=10&sort_order=priority_desc
 ```
 
+### List Overdue Tasks
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+
+# Next page
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10&page_token={next_page_token}"
+```
+
+### Assign a Task
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "alice@example.com"}'
+```
+
+Assignment notifications go through the `services.Notifier` interface. The default
+implementation logs the notification; supply another with
+`services.NewTaskService(services.WithNotifier(n))`. Notification errors are logged
+and do not fail the request. `services.WithClock(fn)` overrides the clock used for
+overdue calculations (useful in tests).
+
 ### Update Task Status
 ```bash
 curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
@@ -143,6 +170,14 @@ curl -X PATCH http://localhost:8080/api/v1/tasks/{id}/status \
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/tasks/{id}
 ```
+
+## Testing
+
+```bash
+go test ./...
+```
+
+Tests do not need `TASK_API_ADMIN_SECRET`.
 
 ## Features
 
