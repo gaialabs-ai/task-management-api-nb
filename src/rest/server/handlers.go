@@ -282,7 +282,7 @@ func (h *Handler) updateTask(c *gin.Context) {
 		code := "INTERNAL_ERROR"
 		
 		// Check if it's a not found error
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
+		if services.IsNotFound(err) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
 		} else if strings.Contains(err.Error(), "invalid") {
@@ -332,7 +332,7 @@ func (h *Handler) updateTaskStatus(c *gin.Context) {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
 		
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
+		if services.IsNotFound(err) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
 		}
