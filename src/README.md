@@ -63,11 +63,24 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+
+### Overdue Tasks
+`GET /api/v1/tasks/overdue` returns tasks that have a `due_date` before the current time and a status other than `completed` or `cancelled`, sorted by `due_date` ascending (ties broken by task ID). It uses the same pagination as `GET /api/v1/tasks`: `page_size` (default 20, max 100) and `page_token` (numeric start index); the response is `{tasks, next_page_token, total_count}`. The route is registered before `/:id`.
+
+### Assigning Tasks
+`POST /api/v1/tasks/:id/assign` with body `{"assignee_email": "bob@example.com"}` (`assignee` is accepted as an alias). The address is validated with `net/mail` and must be a bare address (no display name). Returns `200` with the updated task, `400 VALIDATION_ERROR` for an invalid address or body, `404 NOT_FOUND` for an unknown task.
+
+### Notifications
+`services.Notifier` (`Notify(task models.Task, assignee string) error`) is called after a successful assignment. The default implementation only writes a log line; set another with `TaskService.SetNotifier`. Notification errors are logged and never fail the request. The clock used for overdue evaluation can be injected with `TaskService.SetClock` (used by tests).
+
+> Note: the assignment-notification behaviour is minimal (logging only). Whether real notifications (email, webhook, ...) are wanted should be confirmed with the project owner.
 
 ## Task Model
 

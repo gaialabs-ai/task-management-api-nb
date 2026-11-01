@@ -102,6 +102,27 @@ type ListTasksQuery struct {
 	SortOrder  SortOrder  `form:"sort_order"`
 }
 
+// ListOverdueTasksQuery represents query parameters for listing overdue tasks
+type ListOverdueTasksQuery struct {
+	PageSize  int    `form:"page_size,default=20" binding:"min=1,max=100"`
+	PageToken string `form:"page_token"`
+}
+
+// AssignTaskRequest represents a request to assign a task to an email address.
+// "assignee_email" is canonical; "assignee" is accepted as an alias.
+type AssignTaskRequest struct {
+	AssigneeEmail string `json:"assignee_email"`
+	Assignee      string `json:"assignee"`
+}
+
+// Email returns the requested assignee address.
+func (r AssignTaskRequest) Email() string {
+	if r.AssigneeEmail != "" {
+		return r.AssigneeEmail
+	}
+	return r.Assignee
+}
+
 // ListTasksResponse represents the response for listing tasks
 type ListTasksResponse struct {
 	Tasks         []Task `json:"tasks"`
