@@ -161,21 +161,7 @@ func (h *Handler) assignTask(c *gin.Context) {
 
 	task, err := h.taskService.AssignTask(id, req.AssignedTo)
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := "INTERNAL_ERROR"
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
-			status = http.StatusNotFound
-			code = "NOT_FOUND"
-		} else if strings.Contains(err.Error(), "invalid") {
-			status = http.StatusBadRequest
-			code = "VALIDATION_ERROR"
-		}
-		c.JSON(status, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    code,
-				Message: err.Error(),
-			},
-		})
+		respondServiceError(c, id, err)
 		return
 	}
 
@@ -272,24 +258,7 @@ func (h *Handler) updateTask(c *gin.Context) {
 
 	task, err := h.taskService.UpdateTask(id, req)
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := "INTERNAL_ERROR"
-		
-		// Check if it's a not found error
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
-			status = http.StatusNotFound
-			code = "NOT_FOUND"
-		} else if strings.Contains(err.Error(), "invalid") {
-			status = http.StatusBadRequest
-			code = "VALIDATION_ERROR"
-		}
-
-		c.JSON(status, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    code,
-				Message: err.Error(),
-			},
-		})
+		respondServiceError(c, id, err)
 		return
 	}
 
@@ -323,20 +292,7 @@ func (h *Handler) updateTaskStatus(c *gin.Context) {
 
 	task, err := h.taskService.UpdateTaskStatus(id, req.Status)
 	if err != nil {
-		status := http.StatusInternalServerError
-		code := "INTERNAL_ERROR"
-		
-		if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
-			status = http.StatusNotFound
-			code = "NOT_FOUND"
-		}
-
-		c.JSON(status, models.ErrorResponse{
-			Error: models.ErrorDetail{
-				Code:    code,
-				Message: err.Error(),
-			},
-		})
+		respondServiceError(c, id, err)
 		return
 	}
 
@@ -425,4 +381,22 @@ func (h *Handler) deleteComment(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+// respondServiceError maps a task service error to its HTTP error response.
+func respondServiceError(c *gin.Context, id string, err error) {
+	status := http.StatusInternalServerError
+	code := "INTERNAL_ERROR"
+	if err.Error() == fmt.Sprintf("task with ID %s not found", id) {
+		status = http.StatusNotFound
+		code = "NOT_FOUND"
+	} else if strings.Contains(err.Error(), "invalid") {
+		status = http.StatusBadRequest
+		code = "VALIDATION_ERROR"
+	}
+	c.JSON(status, models.ErrorResponse{
+		Error: models.ErrorDetail{
+			Code:    code,
+			Message: err.Error(),
+		},
+	})
 }
