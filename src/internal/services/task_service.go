@@ -1,11 +1,11 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"log"
-	"sort"
 	"net/mail"
-	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +115,7 @@ func buildListResponse(tasks []*models.Task, pageSize int, pageToken string) *mo
 		TotalCount:    totalCount,
 	}
 }
+
 // GetTask retrieves a task by ID
 func (s *TaskService) GetTask(id string) (*models.Task, error) {
 	s.mu.RLock()
@@ -189,7 +190,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 			return nil, fmt.Errorf("invalid status: %s", *req.Status)
 		}
 		task.Status = *req.Status
-		
+
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := time.Now()
