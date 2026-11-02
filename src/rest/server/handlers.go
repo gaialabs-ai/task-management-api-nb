@@ -362,6 +362,7 @@ func (h *Handler) deleteComment(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
 // listOverdueTasks handles GET /tasks/overdue
 func (h *Handler) listOverdueTasks(c *gin.Context) {
 	var query models.ListTasksQuery
