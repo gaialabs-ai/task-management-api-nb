@@ -129,7 +129,13 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
-	page, next, total := paginate(tasks, query.PageSize, query.PageToken)
+	// Negative tokens are treated as the first page for this new endpoint
+	// (ListTasks keeps its original behaviour).
+	token := query.PageToken
+	if idx, err := strconv.Atoi(token); err == nil && idx < 0 {
+		token = ""
+	}
+	page, next, total := paginate(tasks, query.PageSize, token)
 	return &models.ListTasksResponse{
 		Tasks:         page,
 		NextPageToken: next,
@@ -151,7 +157,7 @@ func paginate(tasks []*models.Task, pageSize int, pageToken string) ([]models.Ta
 
 	startIndex := 0
 	if pageToken != "" {
-		if idx, err := strconv.Atoi(pageToken); err == nil && idx > 0 {
+		if idx, err := strconv.Atoi(pageToken); err == nil {
 			startIndex = idx
 		}
 	}
@@ -203,7 +209,13 @@ func (s *TaskService) ListOverdueTasks(query models.ListTasksQuery) (*models.Lis
 		return tasks[i].ID < tasks[j].ID
 	})
 
-	page, next, total := paginate(tasks, query.PageSize, query.PageToken)
+	// Negative tokens are treated as the first page for this new endpoint
+	// (ListTasks keeps its original behaviour).
+	token := query.PageToken
+	if idx, err := strconv.Atoi(token); err == nil && idx < 0 {
+		token = ""
+	}
+	page, next, total := paginate(tasks, query.PageSize, token)
 	return &models.ListTasksResponse{Tasks: page, NextPageToken: next, TotalCount: total}, nil
 }
 
@@ -310,7 +322,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 			return nil, fmt.Errorf("invalid status: %s", *req.Status)
 		}
 		task.Status = *req.Status
-
+		
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := time.Now()
