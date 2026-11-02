@@ -67,11 +67,57 @@ PORT=3000 go run cmd/rest-server/main.go
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
   - Query params: `page_size`, `page_token`, `status`, `assigned_to`, `tags`, `sort_order`
+- `GET /api/v1/tasks/overdue` - List overdue tasks (see below)
+- `POST /api/v1/tasks/:id/assign` - Assign a task to an email address (see below)
 - `GET /api/v1/tasks/:id` - Get a specific task
 - `POST /api/v1/tasks` - Create a new task
 - `PUT /api/v1/tasks/:id` - Update a task
 - `PATCH /api/v1/tasks/:id/status` - Update task status only
 - `DELETE /api/v1/tasks/:id` - Delete a task
+
+### Overdue Tasks
+
+`GET /api/v1/tasks/overdue` returns tasks whose `due_date` is in the past and whose status is not `completed` or `cancelled`. Results are sorted by due date ascending (ties by ID).
+
+Query params: `page_size` (1-100, default 20), `page_token` (from `next_page_token`), plus the `status`, `assigned_to` and `tags` filters. `sort_order` is ignored.
+
+```bash
+curl "http://localhost:8080/api/v1/tasks/overdue?page_size=10"
+```
+
+```json
+{
+  "tasks": [{"id": "uuid", "title": "Late task", "status": "pending", "due_date": "2024-01-01T00:00:00Z"}],
+  "next_page_token": "10",
+  "total_count": 25
+}
+```
+
+Errors: `400 VALIDATION_ERROR` for an invalid query (e.g. `page_size=0` or `page_size=101`).
+
+### Assign a Task
+
+`POST /api/v1/tasks/:id/assign` sets `assigned_to` to the given email, updates `updated_at` and notifies the configured Notifier.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/{id}/assign \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@example.com"}'
+```
+
+Response `200 OK`: the updated task (with `"assigned_to": "alice@example.com"`).
+
+Errors:
+- `400 VALIDATION_ERROR` - missing/malformed JSON body or invalid email
+- `404 NOT_FOUND` - `task with ID <id> not found`
+
+### Notifier
+
+`services.Notifier` (`NotifyAssigned(task models.Task, assignee string) error`) is called after a successful assignment. This is new behaviour; there was no notification mechanism before. The default `LogNotifier` writes a log line. A notifier error is logged and does not fail the assignment. Configure it (and the clock, for tests) with options:
+
+```go
+svc := services.NewTaskService(services.WithNotifier(myNotifier), services.WithClock(time.Now))
+```
 
 ## Task Model
 
