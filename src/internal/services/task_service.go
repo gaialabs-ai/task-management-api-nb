@@ -129,13 +129,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	s.sortTasks(tasks, query.SortOrder)
 
 	// Apply pagination
-	// Negative tokens are treated as the first page for this new endpoint
-	// (ListTasks keeps its original behaviour).
-	token := query.PageToken
-	if idx, err := strconv.Atoi(token); err == nil && idx < 0 {
-		token = ""
-	}
-	page, next, total := paginate(tasks, query.PageSize, token)
+	page, next, total := paginate(tasks, query.PageSize, query.PageToken)
 	return &models.ListTasksResponse{
 		Tasks:         page,
 		NextPageToken: next,
@@ -209,14 +203,17 @@ func (s *TaskService) ListOverdueTasks(query models.ListTasksQuery) (*models.Lis
 		return tasks[i].ID < tasks[j].ID
 	})
 
-	// Negative tokens are treated as the first page for this new endpoint
-	// (ListTasks keeps its original behaviour).
-	token := query.PageToken
-	if idx, err := strconv.Atoi(token); err == nil && idx < 0 {
-		token = ""
-	}
-	page, next, total := paginate(tasks, query.PageSize, token)
+	page, next, total := paginate(tasks, query.PageSize, firstPageIfNegative(query.PageToken))
 	return &models.ListTasksResponse{Tasks: page, NextPageToken: next, TotalCount: total}, nil
+}
+
+// firstPageIfNegative maps a negative numeric page token to "" (first page).
+// Used only by the overdue endpoint; ListTasks passes tokens through unchanged.
+func firstPageIfNegative(token string) string {
+	if idx, err := strconv.Atoi(token); err == nil && idx < 0 {
+		return ""
+	}
+	return token
 }
 
 // AssignTask assigns a task to the given email address, updates UpdatedAt via
@@ -245,7 +242,7 @@ func (s *TaskService) AssignTask(id string, email string) (*models.Task, error) 
 	if err := s.notifier.NotifyAssigned(snapshot, email); err != nil {
 		log.Printf("failed to notify assignment of task %s to %s: %v", id, email, err)
 	}
-	return task, nil
+	return &snapshot, nil
 }
 
 // GetTask retrieves a task by ID
