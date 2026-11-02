@@ -79,6 +79,11 @@ type UpdateTaskStatusRequest struct {
 	Status TaskStatus `json:"status" binding:"required"`
 }
 
+// AssignTaskRequest represents a request to assign a task to an email address
+type AssignTaskRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
 // SearchTasksQuery represents query parameters for searching tasks
 type SearchTasksQuery struct {
 	Query    string `form:"q" binding:"required,min=1"`
