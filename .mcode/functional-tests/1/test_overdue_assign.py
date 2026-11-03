@@ -138,3 +138,14 @@ def test_regression_create_get_list_search_stats(seeded):
     assert len(j["tasks"]) == 2 and j["total_count"] == 5 and j.get("next_page_token")
     assert requests.get(API + "/search", params={"q": "old3"}, timeout=10).status_code == 200
     assert requests.get(API + "/stats", timeout=10).status_code == 200
+
+
+@pytest.mark.parametrize("ps", ["0", "101", "abc"])
+def test_overdue_page_size_bounds(ps):
+    r = requests.get(API + "/overdue", params={"page_size": ps}, timeout=10)
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_overdue_page_size_max_ok():
+    assert requests.get(API + "/overdue", params={"page_size": 100}, timeout=10).status_code == 200
