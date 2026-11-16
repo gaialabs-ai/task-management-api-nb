@@ -80,7 +80,26 @@ func (h *Handler) healthCheck(c *gin.Context) {
 			"uptime":   uptime,
 			"go_version": runtime.Version(),
 		},
+		"checks": h.healthChecks(),
 	})
+}
+
+// healthChecks reports per-component check details for the health response.
+// It only exposes reachability and a task count, never configuration or secrets.
+func (h *Handler) healthChecks() gin.H {
+	if h.taskService == nil {
+		return gin.H{
+			"task_service": gin.H{"status": "unavailable"},
+		}
+	}
+
+	stats := h.taskService.GetStats()
+	return gin.H{
+		"task_service": gin.H{
+			"status":     "ok",
+			"task_count": stats.Total,
+		},
+	}
 }
 
 // listTasks handles GET /tasks
