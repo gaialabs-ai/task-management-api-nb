@@ -65,3 +65,19 @@ func TestHealthCheck(t *testing.T) {
 		t.Error("health response contains the admin secret")
 	}
 }
+
+func TestHealthChecksNilTaskService(t *testing.T) {
+	h := &Handler{} // taskService intentionally nil
+	checks := h.healthChecks()
+
+	svc, ok := checks["task_service"].(gin.H)
+	if !ok {
+		t.Fatalf("checks.task_service missing or not an object: %v", checks["task_service"])
+	}
+	if svc["status"] != "unavailable" {
+		t.Errorf("checks.task_service.status = %v, want unavailable", svc["status"])
+	}
+	if _, ok := svc["task_count"]; ok {
+		t.Error("task_count must not be reported when the task service is unavailable")
+	}
+}
