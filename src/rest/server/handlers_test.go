@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,21 +66,19 @@ func TestOverdueRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s (route shadowed by /:id?)", w.Code, w.Body)
 	}
 	var resp models.ListTasksResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
+	decode(t, w.Body.Bytes(), &resp)
 	if resp.TotalCount != 2 || len(resp.Tasks) != 2 || resp.Tasks[0].ID != a.ID || resp.Tasks[1].ID != b.ID {
 		t.Errorf("unexpected response: %s", w.Body)
 	}
 
 	w = do(r, http.MethodGet, "/api/v1/tasks/overdue?page_size=1", "")
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	decode(t, w.Body.Bytes(), &resp)
 	if len(resp.Tasks) != 1 || resp.NextPageToken != "1" {
 		t.Errorf("page 1: %s", w.Body)
 	}
 	w = do(r, http.MethodGet, "/api/v1/tasks/overdue?page_size=1&page_token=1", "")
 	resp = models.ListTasksResponse{}
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	decode(t, w.Body.Bytes(), &resp)
 	if len(resp.Tasks) != 1 || resp.Tasks[0].ID != b.ID || resp.NextPageToken != "" {
 		t.Errorf("page 2: %s", w.Body)
 	}
@@ -120,7 +117,7 @@ func TestAssignRoute(t *testing.T) {
 			}
 			if tt.want == http.StatusOK {
 				var got models.Task
-				_ = json.Unmarshal(w.Body.Bytes(), &got)
+				decode(t, w.Body.Bytes(), &got)
 				if got.AssignedTo == nil || *got.AssignedTo != "bob@example.com" {
 					t.Errorf("assigned_to = %v", got.AssignedTo)
 				}

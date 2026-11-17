@@ -32,8 +32,14 @@ func newTestService() *TaskService {
 	return s
 }
 
+// seed inserts a fully specified task directly into the map.
+func seed(s *TaskService, task models.Task) {
+	t := task
+	s.tasks[t.ID] = &t
+}
+
 func addTask(s *TaskService, id string, status models.TaskStatus, due *time.Time) {
-	s.tasks[id] = &models.Task{ID: id, Title: id, Status: status, Priority: models.TaskPriorityMedium, DueDate: due}
+	seed(s, models.Task{ID: id, Title: id, Status: status, Priority: models.TaskPriorityMedium, DueDate: due})
 }
 
 func at(d time.Duration) *time.Time {

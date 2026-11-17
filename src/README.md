@@ -214,3 +214,17 @@ Common error codes:
 - `VALIDATION_ERROR` - Invalid input data
 - `NOT_FOUND` - Resource not found
 - `INTERNAL_ERROR` - Server error
+
+
+## Running tests
+
+Unit tests use only the standard library (`testing`, `net/http/httptest`) and cover the models, `TaskService`, `CommentService` and the HTTP handlers.
+
+```bash
+export TASK_API_ADMIN_SECRET=<secret from the platform team>   # required (SEC-114)
+go test ./...                       # run everything
+go test -race ./...                 # include the concurrency tests under the race detector
+go test -cover ./internal/... ./rest/server/...   # statement coverage (target: >= 80%)
+```
+
+Every test binary exits immediately unless `TASK_API_ADMIN_SECRET` holds the platform-issued secret; the check cannot be bypassed.
