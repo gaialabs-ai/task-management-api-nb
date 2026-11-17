@@ -15,7 +15,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TaskService provides task management operations
+// TaskService provides task management operations (CRUD, filtering, sorting,
+// pagination, search, statistics, overdue listing and assignment) over an
+// in-memory store.
+//
+// All access to the tasks map, the clock and the notifier is guarded by mu, a
+// sync.RWMutex: read-only operations take the read lock and mutating operations
+// take the write lock, so a TaskService is safe for concurrent use. Data is not
+// persisted and is lost when the process exits. Construct it with NewTaskService;
+// the zero value has a nil map and must not be used.
 type TaskService struct {
 	mu       sync.RWMutex
 	tasks    map[string]*models.Task
@@ -23,26 +31,44 @@ type TaskService struct {
 	notifier Notifier
 }
 
-// ErrTaskNotFound is returned when a task ID is unknown.
+// ErrTaskNotFound is the sentinel error returned (wrapped) by AssignTask when the
+// task ID is unknown; callers can detect it with errors.Is. Other methods return
+// plain formatted "not found" errors that do not wrap it.
 var ErrTaskNotFound = errors.New("task not found")
 
-// ErrInvalidEmail is returned when an assignee email fails validation.
+// ErrInvalidEmail is the sentinel error returned (wrapped) by AssignTask when the
+// assignee email cannot be parsed as an RFC 5322 address; callers can detect it
+// with errors.Is.
 var ErrInvalidEmail = errors.New("invalid email")
 
-// Notifier is notified when a task is assigned.
+// Notifier is the hook invoked after a task has been successfully assigned.
+//
+// NotifyAssigned receives a snapshot copy of the task as it was right after the
+// assignment (so the implementation cannot mutate the stored task) and the
+// normalized assignee email address. It has no return value, so failures must be
+// handled by the implementation. TaskService calls it outside its mutex, so
+// implementations may be slow, but they may be called concurrently and must be
+// safe for concurrent use.
 type Notifier interface {
 	NotifyAssigned(task models.Task, email string)
 }
 
-// LogNotifier is the default Notifier; it only logs the assignment.
+// LogNotifier is the default Notifier. It has no state and its only side effect
+// is writing a log line through the standard logger; it sends nothing to the
+// assignee.
 type LogNotifier struct{}
 
-// NotifyAssigned logs the assignment.
+// NotifyAssigned logs a line containing the ID of task and the email it was
+// assigned to using the standard log package. It never fails and does not modify
+// the task.
 func (LogNotifier) NotifyAssigned(task models.Task, email string) {
 	log.Printf("notification: task %s assigned to %s", task.ID, email)
 }
 
-// SetNotifier replaces the assignment notifier (nil restores the logging default).
+// SetNotifier replaces the Notifier used by AssignTask. Passing nil restores the
+// default LogNotifier. It takes the write lock, so it is safe to call while other
+// goroutines use the service; assignments already past their critical section keep
+// using the notifier they captured.
 func (s *TaskService) SetNotifier(n Notifier) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -52,7 +78,11 @@ func (s *TaskService) SetNotifier(n Notifier) {
 	s.notifier = n
 }
 
-// SetClock replaces the clock used for overdue checks (nil restores time.Now).
+// SetClock replaces the injectable clock used by ListOverdueTasks to decide what
+// "now" is and by AssignTask to set UpdatedAt. Passing nil restores time.Now. It
+// takes the write lock, so it is safe for concurrent use. CreateTask and
+// UpdateTask do not use this clock and always call time.Now directly. Intended
+// mainly for tests.
 func (s *TaskService) SetClock(now func() time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,7 +92,9 @@ func (s *TaskService) SetClock(now func() time.Time) {
 	s.now = now
 }
 
-// NewTaskService creates a new task service instance
+// NewTaskService creates a TaskService with an empty mutex-guarded in-memory
+// store, the real clock (time.Now) and the default LogNotifier, then seeds it with
+// sample tasks via initializeSampleData. It never returns nil.
 func NewTaskService() *TaskService {
 	s := &TaskService{
 		tasks:    make(map[string]*models.Task),
@@ -73,7 +105,10 @@ func NewTaskService() *TaskService {
 	return s
 }
 
-// initializeSampleData creates some sample tasks
+// initializeSampleData seeds the store with two sample tasks through CreateTask
+// (a high-priority REST API task and a medium-priority gRPC task). It is called
+// once from NewTaskService, before the service is shared. Errors from CreateTask
+// are ignored because the sample priorities are valid.
 func (s *TaskService) initializeSampleData() {
 	sampleTasks := []models.CreateTaskRequest{
 		{
@@ -95,7 +130,16 @@ func (s *TaskService) initializeSampleData() {
 	}
 }
 
-// ListTasks returns a paginated list of tasks with optional filters
+// ListTasks returns a page of tasks matching the optional filters in query.
+//
+// It filters by status, assignee and tags (see filterTasks), sorts by
+// query.SortOrder (see sortTasks) and paginates with paginate using
+// query.PageSize and query.PageToken. The response carries the page, the next
+// page token ("" when no more results) and TotalCount, the number of tasks that
+// matched the filters before pagination. Tasks in the page are copies. It holds
+// the read lock for the whole call. The returned error is currently always nil.
+// Note that without a SortOrder the order of the underlying map is unspecified, so
+// paging is only stable when a sort order is given.
 func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksResponse, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -123,7 +167,10 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 	}, nil
 }
 
-// GetTask retrieves a task by ID
+// GetTask retrieves a task by ID. It returns a "task with ID <id> not found"
+// error when the ID is unknown. The read lock is held only during the lookup; the
+// returned pointer refers to the stored task itself (not a copy), so callers must
+// not modify it and may observe concurrent updates.
 func (s *TaskService) GetTask(id string) (*models.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -136,7 +183,15 @@ func (s *TaskService) GetTask(id string) (*models.Task, error) {
 	return task, nil
 }
 
-// CreateTask creates a new task
+// CreateTask creates a new task from req and stores it under a freshly generated
+// UUID.
+//
+// The task starts in the pending status, with CreatedBy set to "system" and
+// CreatedAt and UpdatedAt both set to the current time (time.Now, not the
+// injectable clock). An empty Priority defaults to medium and nil Tags become an
+// empty slice. It returns an error "invalid priority: <p>" if the priority is not
+// valid; in that case nothing is stored. It takes the write lock. Title is not
+// validated here.
 func (s *TaskService) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -175,7 +230,19 @@ func (s *TaskService) CreateTask(req models.CreateTaskRequest) (*models.Task, er
 	return task, nil
 }
 
-// UpdateTask updates an existing task
+// UpdateTask applies a partial update to the task with the given id: only the
+// non-nil fields of req (Title, Description, Status, Priority, Tags, AssignedTo,
+// DueDate) are changed.
+//
+// It returns a "not found" error for an unknown id, and "invalid status: <s>" or
+// "invalid priority: <p>" for invalid values. Moving to the completed status sets
+// CompletedAt the first time only; it is never cleared afterwards. On success
+// UpdatedAt is set to time.Now and the updated stored task is returned. It takes
+// the write lock. The update is not atomic: fields are applied in order, so when a
+// validation error occurs, fields handled before the invalid one (for example
+// Title, Description or Status) remain modified and UpdatedAt is not refreshed.
+// No assignment notification is sent from here, even if AssignedTo changes; use
+// AssignTask for that.
 func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -224,7 +291,10 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 	return task, nil
 }
 
-// UpdateTaskStatus updates the status of a task
+// UpdateTaskStatus changes only the status of the task with the given id by
+// delegating to UpdateTask. It returns the updated task, or the same errors as
+// UpdateTask (not found, invalid status). It sets CompletedAt on first completion
+// and refreshes UpdatedAt.
 func (s *TaskService) UpdateTaskStatus(id string, status models.TaskStatus) (*models.Task, error) {
 	return s.UpdateTask(id, models.UpdateTaskRequest{
 		Status: &status,
@@ -263,9 +333,17 @@ func (s *TaskService) GetStats() *models.TaskStats {
 	return stats
 }
 
-// SearchTasks performs a case-insensitive full-text search across task titles,
+// SearchTasks performs a case-insensitive substring search across task titles,
 // descriptions, and tags. Returns matching tasks ordered by relevance (title
 // matches first, then description, then tags).
+//
+// Relevance is a score: 3 for a title match, 2 for a description match and 1 if
+// any tag matches; matches are sorted by descending score and tasks with equal
+// scores are in unspecified order. The result is limited to query.PageSize
+// entries (default 20 when it is zero or negative); there is no page token, and
+// TotalCount is the number of matches before that limit. An empty query matches
+// every task. Returned tasks are copies, and the response echoes the original
+// query text. It holds the read lock and never returns an error.
 func (s *TaskService) SearchTasks(query models.SearchTasksQuery) *models.SearchTasksResponse {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -320,7 +398,9 @@ func (s *TaskService) SearchTasks(query models.SearchTasksQuery) *models.SearchT
 	}
 }
 
-// DeleteTask deletes a task by ID
+// DeleteTask removes the task with the given id from the store. It returns a
+// "task with ID <id> not found" error if the id is unknown. It takes the write
+// lock. Comments held by CommentService for the task are not removed.
 func (s *TaskService) DeleteTask(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -333,7 +413,12 @@ func (s *TaskService) DeleteTask(id string) error {
 	return nil
 }
 
-// filterTasks applies filters to the task list
+// filterTasks returns the tasks that satisfy every filter set in query; unset
+// (empty) filters are ignored. Status must equal query.Status, AssignedTo must
+// equal query.AssignedTo exactly (unassigned tasks never match), and Tags is a
+// comma-separated list, each entry trimmed of whitespace, of which the task must
+// carry all (exact, case-sensitive match). The input slice is not modified and the
+// caller must hold s.mu.
 func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQuery) []*models.Task {
 	var filtered []*models.Task
 
@@ -379,7 +464,11 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 	return filtered
 }
 
-// sortTasks sorts tasks based on the specified order
+// sortTasks sorts tasks in place according to order: created_at, due_date or
+// priority, ascending or descending. For due-date orders the comparison treats
+// tasks with no due date inconsistently with a strict ordering, so their position
+// is not well defined. An unrecognized or empty order leaves the slice untouched.
+// The caller must hold s.mu.
 func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 	switch order {
 	case models.SortOrderCreatedAtAsc:
@@ -423,6 +512,13 @@ func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
 
 // paginate applies offset-based pagination (default page size 20, max 100) and
 // returns the page plus the next page token ("" when there are no more results).
+//
+// A pageSize of zero or less becomes 20 and values above 100 are capped at 100.
+// pageToken is the decimal start offset produced by a previous call; an empty or
+// non-numeric token starts at offset 0, and an out-of-range (negative or past the
+// end) offset yields an empty page. The returned tasks are value copies, so the
+// page does not alias the store. The next token is the offset following the page.
+// It does not lock; callers must hold s.mu while the tasks are read.
 func paginate(tasks []*models.Task, pageSize int, pageToken string) ([]models.Task, string) {
 	totalCount := len(tasks)
 	if pageSize <= 0 {
@@ -460,6 +556,13 @@ func paginate(tasks []*models.Task, pageSize int, pageToken string) ([]models.Ta
 
 // ListOverdueTasks returns tasks whose due date is before now and whose status
 // is neither completed nor cancelled, sorted by due date ascending (ID tiebreak).
+//
+// "Now" comes from the injectable clock (see SetClock); tasks without a due date
+// are never overdue. Pagination follows paginate using query.PageSize and
+// query.PageToken, and TotalCount is the number of overdue tasks before
+// pagination. It holds the read lock while collecting, sorting and paginating
+// (the clock is read under that lock), and returns copies of the tasks. It never
+// fails.
 func (s *TaskService) ListOverdueTasks(query models.OverdueTasksQuery) *models.ListTasksResponse {
 	s.mu.RLock()
 	now := s.now()
@@ -489,7 +592,18 @@ func (s *TaskService) ListOverdueTasks(query models.OverdueTasksQuery) *models.L
 	}
 }
 
-// AssignTask assigns a task to the given email and triggers a notification.
+// AssignTask assigns the task with the given id to email and triggers a
+// notification.
+//
+// The email is parsed with net/mail.ParseAddress; the normalized bare address
+// (display name stripped) is stored in AssignedTo. It returns an error wrapping
+// ErrInvalidEmail if the email cannot be parsed (checked first, before the task is
+// looked up), or wrapping ErrTaskNotFound if the id is unknown. On success it sets
+// UpdatedAt using the injectable clock and returns a snapshot copy of the updated
+// task. The mutation happens under the write lock; the Notifier is then called
+// after the lock is released, with the snapshot and the address, so a slow
+// notifier cannot block other operations. Notifier panics or errors are not
+// handled here.
 func (s *TaskService) AssignTask(id, email string) (*models.Task, error) {
 	addr, err := mail.ParseAddress(email)
 	if err != nil {

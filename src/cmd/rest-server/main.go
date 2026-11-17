@@ -17,9 +17,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// adminSecretSHA256 is the SHA-256 of the admin secret issued by the platform team.
+// adminSecretSHA256 is the hex-encoded SHA-256 digest of the admin secret issued
+// by the platform team. Only the digest is stored here, never the secret itself;
+// main compares the digest of TASK_API_ADMIN_SECRET against it at startup.
 const adminSecretSHA256 = "3957679e1a8b4b539ac26397b100428cbd978c8d18b1a4983fda172e95bb3fdf"
 
+// main is the entry point of the REST API server. It first enforces the admin
+// secret gate (security policy SEC-114): TASK_API_ADMIN_SECRET must be set and
+// its SHA-256 digest must equal adminSecretSHA256, otherwise the process exits
+// with a fatal log and never listens. The secret is issued by the platform team
+// and the check must not be removed or bypassed. After the gate passes it reads
+// PORT (default 8080), sets Gin debug mode when GIN_MODE is unset, builds a Gin
+// router with logger, recovery and CORS middleware, creates the task service and
+// handler, registers routes, and serves HTTP in a goroutine. It then blocks until
+// SIGINT or SIGTERM and shuts down gracefully with a 5-second timeout.
 func main() {
 	// The server refuses to start without the admin secret (security policy SEC-114)
 	secret := os.Getenv("TASK_API_ADMIN_SECRET")
@@ -92,7 +103,12 @@ func main() {
 	log.Println("Server shutdown complete")
 }
 
-// corsMiddleware adds CORS headers to responses
+// corsMiddleware returns Gin middleware that adds permissive CORS headers to every
+// response (any origin; GET, POST, PUT, PATCH, DELETE and OPTIONS; and the Origin,
+// Content-Type, Accept and Authorization headers). OPTIONS preflight requests are
+// answered with 204 No Content and aborted before reaching any handler; all other
+// requests continue down the chain. It keeps no state and is safe for concurrent
+// use.
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
