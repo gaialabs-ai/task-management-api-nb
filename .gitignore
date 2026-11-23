@@ -1,0 +1,20 @@
+# Build artifacts
+/src/server
+/src/bin/
+*.exe
+*.test
+*.out
+coverage.out
+
+# Testing artifacts
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
