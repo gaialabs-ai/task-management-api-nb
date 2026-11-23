@@ -23,7 +23,7 @@ A task management REST API built with Go and the Gin framework. This implementat
 
 ## Prerequisites
 
-- Go 1.21 or higher
+- Go 1.27 or higher
 
 ## Installation
 

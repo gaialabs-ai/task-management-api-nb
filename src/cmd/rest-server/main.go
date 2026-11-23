@@ -29,7 +29,7 @@ func main() {
 
 	// Create Gin router
 	router := gin.New()
-	
+
 	// Add middleware
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
@@ -53,7 +53,7 @@ func main() {
 		fmt.Printf("REST API server starting on http://localhost:%s\n", port)
 		fmt.Printf("Health check: http://localhost:%s/health\n", port)
 		fmt.Printf("API endpoint: http://localhost:%s/api/v1/tasks\n", port)
-		
+
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
@@ -63,13 +63,13 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	
+
 	log.Println("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
@@ -83,12 +83,12 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-		
+
 		c.Next()
 	}
 }

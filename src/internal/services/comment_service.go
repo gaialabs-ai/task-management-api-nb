@@ -2,7 +2,7 @@ package services
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -40,8 +40,8 @@ func (s *CommentService) ListComments(taskID string) (*models.ListCommentsRespon
 		result = append(result, *c)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	slices.SortStableFunc(result, func(a, b models.Comment) int {
+		return a.CreatedAt.Compare(b.CreatedAt)
 	})
 
 	return &models.ListCommentsResponse{

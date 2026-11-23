@@ -1,6 +1,8 @@
 module github.com/cloudstreet-dev/REST-gRPC-in-33-Languages/code/go
 
-go 1.21
+go 1.27
+
+toolchain go1.27.4
 
 require (
 	github.com/gin-gonic/gin v1.9.1

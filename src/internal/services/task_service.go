@@ -1,8 +1,9 @@
 package services
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,10 +84,7 @@ func (s *TaskService) ListTasks(query models.ListTasksQuery) (*models.ListTasksR
 		}
 	}
 
-	endIndex := startIndex + pageSize
-	if endIndex > totalCount {
-		endIndex = totalCount
-	}
+	endIndex := min(startIndex+pageSize, totalCount)
 
 	var paginatedTasks []models.Task
 	if startIndex < totalCount {
@@ -181,7 +179,7 @@ func (s *TaskService) UpdateTask(id string, req models.UpdateTaskRequest) (*mode
 			return nil, fmt.Errorf("invalid status: %s", *req.Status)
 		}
 		task.Status = *req.Status
-		
+
 		// Set completed time if status changes to completed
 		if task.Status == models.TaskStatusCompleted && task.CompletedAt == nil {
 			now := time.Now()
@@ -280,8 +278,8 @@ func (s *TaskService) SearchTasks(query models.SearchTasksQuery) *models.SearchT
 		}
 	}
 
-	sort.Slice(matches, func(i, j int) bool {
-		return matches[i].score > matches[j].score
+	slices.SortStableFunc(matches, func(a, b scored) int {
+		return cmp.Compare(b.score, a.score)
 	})
 
 	limit := query.PageSize
@@ -336,21 +334,17 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 
 		// Filter by tags
 		if query.Tags != "" {
-			tags := strings.Split(query.Tags, ",")
 			hasAllTags := true
-			for _, tag := range tags {
-				tag = strings.TrimSpace(tag)
-				found := false
-				for _, taskTag := range task.Tags {
-					if taskTag == tag {
-						found = true
-						break
-					}
-				}
-				if !found {
+			for rest := query.Tags; ; {
+				tag, next, more := strings.Cut(rest, ",")
+				if !slices.Contains(task.Tags, strings.TrimSpace(tag)) {
 					hasAllTags = false
 					break
 				}
+				if !more {
+					break
+				}
+				rest = next
 			}
 			if !hasAllTags {
 				continue
@@ -365,42 +359,41 @@ func (s *TaskService) filterTasks(tasks []*models.Task, query models.ListTasksQu
 
 // sortTasks sorts tasks based on the specified order
 func (s *TaskService) sortTasks(tasks []*models.Task, order models.SortOrder) {
+	// dueCmp orders by due date with missing dates last, regardless of direction.
+	dueCmp := func(a, b *models.Task, desc bool) int {
+		switch {
+		case a.DueDate == nil && b.DueDate == nil:
+			return 0
+		case a.DueDate == nil:
+			return 1
+		case b.DueDate == nil:
+			return -1
+		case desc:
+			return b.DueDate.Compare(*a.DueDate)
+		}
+		return a.DueDate.Compare(*b.DueDate)
+	}
+
 	switch order {
 	case models.SortOrderCreatedAtAsc:
-		sort.Slice(tasks, func(i, j int) bool {
-			return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+		slices.SortStableFunc(tasks, func(a, b *models.Task) int {
+			return a.CreatedAt.Compare(b.CreatedAt)
 		})
 	case models.SortOrderCreatedAtDesc:
-		sort.Slice(tasks, func(i, j int) bool {
-			return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
+		slices.SortStableFunc(tasks, func(a, b *models.Task) int {
+			return b.CreatedAt.Compare(a.CreatedAt)
 		})
 	case models.SortOrderDueDateAsc:
-		sort.Slice(tasks, func(i, j int) bool {
-			if tasks[i].DueDate == nil {
-				return false
-			}
-			if tasks[j].DueDate == nil {
-				return true
-			}
-			return tasks[i].DueDate.Before(*tasks[j].DueDate)
-		})
+		slices.SortStableFunc(tasks, func(a, b *models.Task) int { return dueCmp(a, b, false) })
 	case models.SortOrderDueDateDesc:
-		sort.Slice(tasks, func(i, j int) bool {
-			if tasks[i].DueDate == nil {
-				return false
-			}
-			if tasks[j].DueDate == nil {
-				return true
-			}
-			return tasks[i].DueDate.After(*tasks[j].DueDate)
-		})
+		slices.SortStableFunc(tasks, func(a, b *models.Task) int { return dueCmp(a, b, true) })
 	case models.SortOrderPriorityAsc:
-		sort.Slice(tasks, func(i, j int) bool {
-			return tasks[i].Priority.GetValue() < tasks[j].Priority.GetValue()
+		slices.SortStableFunc(tasks, func(a, b *models.Task) int {
+			return cmp.Compare(a.Priority.GetValue(), b.Priority.GetValue())
 		})
 	case models.SortOrderPriorityDesc:
-		sort.Slice(tasks, func(i, j int) bool {
-			return tasks[i].Priority.GetValue() > tasks[j].Priority.GetValue()
+		slices.SortStableFunc(tasks, func(a, b *models.Task) int {
+			return cmp.Compare(b.Priority.GetValue(), a.Priority.GetValue())
 		})
 	}
 }
